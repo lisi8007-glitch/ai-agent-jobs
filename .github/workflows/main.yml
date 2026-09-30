@@ -79,7 +79,7 @@ jobs:
             from agent import search_web
             import json
 
-            query = 'Солнечный берег Святой Влас нужен мастер ремонт сантехник квартира'
+            query = 'site:facebook.com "Солнечный берег" "Святой Влас" Болгария мастер ремонт сантехник квартира'
 
             print("=== ЗАПРОС TINYFISH ===")
             print(query)
