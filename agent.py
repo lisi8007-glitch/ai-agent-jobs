@@ -12,7 +12,6 @@ with open(CONFIG_PATH, "r", encoding="utf-8") as f:
 LANGUAGE = CONFIG.get("language", "ru")
 SEARCH_LANGUAGES = CONFIG.get("search_languages", ["ru"])
 EXCLUDE_LANGUAGES = CONFIG.get("exclude_languages", [])
-
 TASK_TYPE = CONFIG.get("task_type", "ремонтные и бытовые работы")
 
 EXCLUDED_KEYWORDS = [
@@ -26,8 +25,30 @@ INCLUDED_KEYWORDS = [
 ]
 
 
+# Признаки вакансии / поиска работника.
+# Они помогают отличить заявку клиента от объявления работодателя.
+VACANCY_MARKERS = [
+    "вакансия",
+    "вакансии",
+    "ищем сотрудника",
+    "ищем работника",
+    "требуется сотрудник",
+    "требуется работник",
+    "работа официальная",
+    "официальное трудоустройство",
+    "трудоустройство",
+    "график работы",
+    "заработная плата",
+    "зарплата",
+    "оклад",
+    "предоставляется жильё",
+    "предоставляется жилье",
+    "жильё предоставляется",
+    "жилье предоставляется",
+]
+
+
 def is_russian_text(text):
-    """Проверяет, содержит ли объявление русский текст."""
     if not text:
         return False
 
@@ -35,33 +56,54 @@ def is_russian_text(text):
         "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
     )
 
-    text = text.lower()
-
+    text_lower = text.lower()
     russian_count = sum(
-        1 for char in text
+        1 for char in text_lower
         if char in russian_letters
     )
 
     return russian_count >= 5
 
 
-def is_repair_request(text):
-    """Проверяет, подходит ли объявление под нашу задачу."""
+def is_vacancy(text):
     if not text:
         return False
 
     text_lower = text.lower()
 
-    # Только русский язык
+    # Явные признаки вакансии
+    for marker in VACANCY_MARKERS:
+        if marker in text_lower:
+            return True
+
+    # "Требуется + профессия" само по себе не является вакансией:
+    # это может быть заявка клиента на мастера.
+    # Поэтому слово "требуется" без других признаков не исключаем.
+
+    return False
+
+
+def is_repair_request(text):
+    if not text:
+        return False
+
+    text_lower = text.lower()
+
+    # Работаем только с русскоязычными объявлениями
     if LANGUAGE == "ru" and not is_russian_text(text):
         return False
 
-    # Исключаем вакансии, резюме, рекламу и т.д.
+    # Исключаем явные нежелательные типы объявлений
     for keyword in EXCLUDED_KEYWORDS:
         if keyword in text_lower:
             return False
 
-    # Должно быть хотя бы одно ключевое слово
+    # Исключаем вакансии работодателей
+    if is_vacancy(text):
+        return False
+
+    # Должно присутствовать хотя бы одно слово,
+    # связанное с ремонтом или бытовой работой
     return any(
         keyword in text_lower
         for keyword in INCLUDED_KEYWORDS
@@ -69,7 +111,6 @@ def is_repair_request(text):
 
 
 def analyze_ad(text):
-    """Анализирует объявление."""
     if is_repair_request(text):
         return {
             "match": True,
@@ -83,13 +124,19 @@ def analyze_ad(text):
     return {
         "match": False,
         "text": text,
-        "reason": "Объявление не соответствует заданным критериям."
+        "reason": (
+            "Объявление не соответствует заданным критериям."
+        )
     }
 
 
 if __name__ == "__main__":
-    print("ИИ-агент для поиска объявлений о ремонтных и бытовых работах")
-    print("Язык поиска:", SEARCH_LANGUAGES)
-    print("Исключённые языки:", EXCLUDE_LANGUAGES)
-    print("Тип задач:", TASK_TYPE)
+    print("=== ИИ-агент поиска объявлений ===")
+    print(f"Язык: {LANGUAGE}")
+    print(f"Языки поиска: {', '.join(SEARCH_LANGUAGES)}")
+    print(
+        f"Исключённые языки: "
+        f"{', '.join(EXCLUDE_LANGUAGES) if EXCLUDE_LANGUAGES else 'нет'}"
+    )
+    print(f"Тип задач: {TASK_TYPE}")
     print("Конфигурация загружена из agent_config.json")
