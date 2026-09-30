@@ -71,10 +71,10 @@ jobs:
 
           print("\n=== ВСЕ ТЕСТЫ ПРОЙДЕНЫ ===")
           PY
-- name: Проверка реального поиска TinyFish
-     env:
-       TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
-     run: |
+      - name: Проверка реального поиска TinyFish
+        env:
+                TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
+        run: |
             python - <<'PY'
             from agent import search_web
             import json
