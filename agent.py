@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import requests
 
 
 # Загружаем настройки агента из agent_config.json
