@@ -71,3 +71,30 @@ jobs:
 
           print("\n=== ВСЕ ТЕСТЫ ПРОЙДЕНЫ ===")
           PY
+- name: Проверка реального поиска TinyFish
+     env:
+       TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
+     run: |
+            python - <<'PY'
+            from agent import search_web
+            import json
+
+            query = 'Солнечный берег Святой Влас нужен мастер ремонт сантехник квартира'
+
+            print("=== ЗАПРОС TINYFISH ===")
+            print(query)
+
+            data = search_web(query)
+
+            print("\n=== РЕЗУЛЬТАТ TINYFISH ===")
+            print(json.dumps(data, ensure_ascii=False, indent=2)[:12000])
+
+            results = data.get("results", [])
+
+            print(f"\nНайдено результатов: {len(results)}")
+
+            if not results:
+                raise RuntimeError("TinyFish не вернул результатов")
+
+            print("\n=== ПОИСК РАБОТАЕТ ===")
+            PY
