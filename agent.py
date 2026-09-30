@@ -1,9 +1,10 @@
 import json
-from pathlib import Path
+import os
 import requests
+from pathlib import Path
 
 
-# Загружаем настройки агента из agent_config.json
+# Загружаем настройки агента
 CONFIG_PATH = Path(__file__).with_name("agent_config.json")
 
 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -26,8 +27,7 @@ INCLUDED_KEYWORDS = [
 ]
 
 
-# Признаки вакансии / поиска работника.
-# Они помогают отличить заявку клиента от объявления работодателя.
+# Признаки вакансии работодателя
 VACANCY_MARKERS = [
     "вакансия",
     "вакансии",
@@ -58,6 +58,7 @@ def is_russian_text(text):
     )
 
     text_lower = text.lower()
+
     russian_count = sum(
         1 for char in text_lower
         if char in russian_letters
@@ -72,14 +73,9 @@ def is_vacancy(text):
 
     text_lower = text.lower()
 
-    # Явные признаки вакансии
     for marker in VACANCY_MARKERS:
         if marker in text_lower:
             return True
-
-    # "Требуется + профессия" само по себе не является вакансией:
-    # это может быть заявка клиента на мастера.
-    # Поэтому слово "требуется" без других признаков не исключаем.
 
     return False
 
@@ -90,11 +86,11 @@ def is_repair_request(text):
 
     text_lower = text.lower()
 
-    # Работаем только с русскоязычными объявлениями
+    # Только русскоязычные объявления
     if LANGUAGE == "ru" and not is_russian_text(text):
         return False
 
-    # Исключаем явные нежелательные типы объявлений
+    # Исключаем нежелательные объявления
     for keyword in EXCLUDED_KEYWORDS:
         if keyword in text_lower:
             return False
@@ -103,8 +99,7 @@ def is_repair_request(text):
     if is_vacancy(text):
         return False
 
-    # Должно присутствовать хотя бы одно слово,
-    # связанное с ремонтом или бытовой работой
+    # Ищем слова, связанные с ремонтом
     return any(
         keyword in text_lower
         for keyword in INCLUDED_KEYWORDS
@@ -131,10 +126,43 @@ def analyze_ad(text):
     }
 
 
+def search_web(query):
+    """
+    Поиск объявлений через TinyFish Search.
+    API-ключ берётся из GitHub Secret TINYFISH_API_KEY.
+    """
+
+    api_key = os.environ.get("TINYFISH_API_KEY")
+
+    if not api_key:
+        raise RuntimeError(
+            "Не найден секрет TINYFISH_API_KEY"
+        )
+
+    response = requests.get(
+        "https://api.search.tinyfish.ai",
+        headers={
+            "X-API-Key": api_key
+        },
+        params={
+            "query": query,
+            "language": "ru"
+        },
+        timeout=30
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
+
 if __name__ == "__main__":
     print("=== ИИ-агент поиска объявлений ===")
     print(f"Язык: {LANGUAGE}")
-    print(f"Языки поиска: {', '.join(SEARCH_LANGUAGES)}")
+    print(
+        f"Языки поиска: "
+        f"{', '.join(SEARCH_LANGUAGES)}"
+    )
     print(
         f"Исключённые языки: "
         f"{', '.join(EXCLUDE_LANGUAGES) if EXCLUDE_LANGUAGES else 'нет'}"
