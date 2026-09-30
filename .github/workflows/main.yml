@@ -16,6 +16,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Установка зависимостей
+        run: |
+          pip install requests
+
       - name: Тестирование агента
         run: |
           python - <<'PY'
