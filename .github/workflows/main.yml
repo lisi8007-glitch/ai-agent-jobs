@@ -1,4 +1,4 @@
-name: Test AI Agent
+name: Тестирование ИИ-агента
 
 on:
   workflow_dispatch:
@@ -16,5 +16,44 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Запустить агента
-        run: python agent.py
+      - name: Проверить ИИ-агента
+        run: |
+          python - <<'PY'
+          from agent import analyze_ad
+
+          tests = [
+              (
+                  "Заявка клиента",
+                  "Требуется сантехник для ремонта ванной комнаты. Оплата договорная.",
+                  True
+              ),
+              (
+                  "Поиск работы",
+                  "Ищу работу сантехником. Есть опыт 10 лет.",
+                  False
+              ),
+              (
+                  "Вакансия",
+                  "Требуется электрик. Работа официальная, предоставляется жильё.",
+                  False
+              )
+          ]
+
+          print("=== ТЕСТ ИИ-АГЕНТА ===")
+
+          for name, text, expected in tests:
+              result = analyze_ad(text)
+              actual = result["match"]
+
+              print(f"\n{name}")
+              print(f"Текст: {text}")
+              print(f"Результат агента: {actual}")
+              print(f"Ожидалось: {expected}")
+
+              if actual != expected:
+                  raise AssertionError(
+                      f"ОШИБКА: {name}. Получено {actual}, ожидалось {expected}"
+                  )
+
+          print("\n=== ВСЕ ТЕСТЫ ПРОЙДЕНЫ ===")
+          PY
