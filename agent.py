@@ -49,6 +49,81 @@ VACANCY_MARKERS = [
 ]
 
 
+# Признаки предложения услуг мастером
+SERVICE_OFFER_MARKERS = [
+    "оказываю услуги",
+    "оказываем услуги",
+    "предлагаю услуги",
+    "предлагаем услуги",
+    "предоставляю услуги",
+    "предоставляем услуги",
+    "выполняю работы",
+    "выполняем работы",
+    "выполню работы",
+    "делаю ремонт",
+    "делаем ремонт",
+    "ремонтируем",
+    "работаю сантехником",
+    "работаю электриком",
+    "работаю мастером",
+    "мастер на все руки",
+    "мои услуги",
+    "наши услуги",
+    "услуги от",
+    "услуги с",
+    "обращайтесь",
+    "звоните",
+    "пишите в личку",
+    "пишите мне",
+    "whatsapp:",
+    "viber:",
+    "telegram:",
+]
+
+
+# Явные признаки заявки клиента
+CLIENT_REQUEST_MARKERS = [
+    "нужен мастер",
+    "нужен сантехник",
+    "нужен электрик",
+    "нужен плиточник",
+    "нужен специалист",
+    "ищу мастера",
+    "ищу сантехника",
+    "ищу электрика",
+    "ищу специалиста",
+    "ищем мастера",
+    "ищем сантехника",
+    "ищем электрика",
+    "ищем специалиста",
+    "кто может",
+    "кто сможет",
+    "кто знает мастера",
+    "посоветуйте мастера",
+    "посоветуйте сантехника",
+    "посоветуйте электрика",
+    "подскажите мастера",
+    "подскажите сантехника",
+    "подскажите электрика",
+    "требуется мастер",
+    "требуется сантехник",
+    "требуется электрик",
+    "нужно установить",
+    "нужно заменить",
+    "нужно отремонтировать",
+    "надо установить",
+    "надо заменить",
+    "надо отремонтировать",
+    "необходимо установить",
+    "необходимо заменить",
+    "необходимо отремонтировать",
+    "сломался",
+    "сломалась",
+    "не работает",
+    "нужна помощь",
+]
+
+
 def is_russian_text(text):
     if not text:
         return False
@@ -73,11 +148,69 @@ def is_vacancy(text):
 
     text_lower = text.lower()
 
-    for marker in VACANCY_MARKERS:
-        if marker in text_lower:
-            return True
+    return any(
+        marker in text_lower
+        for marker in VACANCY_MARKERS
+    )
 
-    return False
+
+def has_client_request(text):
+    if not text:
+        return False
+
+    text_lower = text.lower()
+
+    return any(
+        marker in text_lower
+        for marker in CLIENT_REQUEST_MARKERS
+    )
+
+
+def is_service_offer(text):
+    if not text:
+        return False
+
+    text_lower = text.lower()
+
+    # Явное предложение услуг
+    if any(
+        marker in text_lower
+        for marker in SERVICE_OFFER_MARKERS
+    ):
+        return True
+
+    # Рекламные объявления типа:
+    # "Мастер! Электрик! Сантехник! Недорого."
+    service_words = [
+        "мастер",
+        "электрик",
+        "сантехник",
+        "плиточник",
+        "ремонт",
+    ]
+
+    advertising_words = [
+        "недорого",
+        "цена",
+        "цены",
+        "от 20€",
+        "от 20 €",
+        "от 30€",
+        "от 30 €",
+        "доступно",
+    ]
+
+    has_service_word = any(
+        word in text_lower
+        for word in service_words
+    )
+
+    has_advertising_word = any(
+        word in text_lower
+        for word in advertising_words
+    )
+
+    return has_service_word and has_advertising_word
 
 
 def is_repair_request(text):
@@ -99,7 +232,19 @@ def is_repair_request(text):
     if is_vacancy(text):
         return False
 
-    # Ищем слова, связанные с ремонтом
+    # Если это явная заявка клиента,
+    # проверяем наличие ремонтной тематики.
+    if has_client_request(text):
+        return any(
+            keyword in text_lower
+            for keyword in INCLUDED_KEYWORDS
+        )
+
+    # Если это предложение услуг мастера — исключаем.
+    if is_service_offer(text):
+        return False
+
+    # Остальные объявления проверяем по ключевым словам.
     return any(
         keyword in text_lower
         for keyword in INCLUDED_KEYWORDS
@@ -117,12 +262,26 @@ def analyze_ad(text):
             )
         }
 
+    if is_service_offer(text):
+        reason = (
+            "Объявление похоже на предложение услуг "
+            "мастера, а не на заявку клиента."
+        )
+    elif is_vacancy(text):
+        reason = (
+            "Объявление похоже на вакансию работодателя."
+        )
+    elif LANGUAGE == "ru" and not is_russian_text(text):
+        reason = "Объявление не является русскоязычным."
+    else:
+        reason = (
+            "Объявление не соответствует заданным критериям."
+        )
+
     return {
         "match": False,
         "text": text,
-        "reason": (
-            "Объявление не соответствует заданным критериям."
-        )
+        "reason": reason
     }
 
 
