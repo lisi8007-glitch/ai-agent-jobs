@@ -71,30 +71,88 @@ jobs:
 
           print("\n=== ВСЕ ТЕСТЫ ПРОЙДЕНЫ ===")
           PY
+
       - name: Проверка реального поиска TinyFish
         env:
-                TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
+          TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
-            python - <<'PY'
-            from agent import search_web
-            import json
+          python - <<'PY'
+          from agent import search_web, analyze_ad
+          import json
 
-            query = 'site:facebook.com "Солнечный берег" "Святой Влас" Болгария мастер ремонт сантехник квартира'
+          query = (
+              'site:facebook.com '
+              '"Солнечный берег" '
+              '"Святой Влас" '
+              'Болгария '
+              'мастер ремонт сантехник квартира'
+          )
 
-            print("=== ЗАПРОС TINYFISH ===")
-            print(query)
+          print("=== ЗАПРОС TINYFISH ===")
+          print(query)
 
-            data = search_web(query)
+          data = search_web(query)
 
-            print("\n=== РЕЗУЛЬТАТ TINYFISH ===")
-            print(json.dumps(data, ensure_ascii=False, indent=2)[:12000])
+          print("\n=== РЕЗУЛЬТАТ TINYFISH ===")
+          print(
+              json.dumps(
+                  data,
+                  ensure_ascii=False,
+                  indent=2
+              )[:12000]
+          )
 
-            results = data.get("results", [])
+          results = data.get("results", [])
 
-            print(f"\nНайдено результатов: {len(results)}")
+          print(f"\nНайдено результатов: {len(results)}")
 
-            if not results:
-                raise RuntimeError("TinyFish не вернул результатов")
+          if not results:
+              raise RuntimeError(
+                  "TinyFish не вернул результатов"
+              )
 
-            print("\n=== ПОИСК РАБОТАЕТ ===")
-            PY
+          print("\n=== КЛАССИФИКАЦИЯ РЕЗУЛЬТАТОВ ===")
+
+          matches = []
+
+          for item in results:
+              title = item.get("title", "")
+              snippet = item.get("snippet", "")
+              url = item.get("url", "")
+
+              text = f"{title} {snippet}"
+
+              result = analyze_ad(text)
+
+              print("\n---")
+              print(f"Заголовок: {title}")
+              print(f"Результат: {result['match']}")
+              print(f"Ссылка: {url}")
+
+              if result["match"]:
+                  matches.append(item)
+
+          print(
+              f"\n=== ПОДХОДЯЩИХ ЗАЯВОК: "
+              f"{len(matches)} ==="
+          )
+
+          for item in matches:
+              print("\n--- ПОДХОДЯЩАЯ ЗАЯВКА ---")
+              print(
+                  f"Заголовок: "
+                  f"{item.get('title', '')}"
+              )
+              print(
+                  f"Описание: "
+                  f"{item.get('snippet', '')}"
+              )
+              print(
+                  f"Ссылка: "
+                  f"{item.get('url', '')}"
+              )
+
+          print(
+              "\n=== ПОИСК И КЛАССИФИКАЦИЯ РАБОТАЮТ ==="
+          )
+          PY
