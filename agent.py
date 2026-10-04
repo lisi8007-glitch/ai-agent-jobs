@@ -52,10 +52,8 @@ VACANCY_MARKERS = [
     "заработная плата",
     "зарплата",
     "оклад",
-    "предоставляется жильё",
-    "предоставляется жилье",
-    "жильё предоставляется",
-    "жилье предоставляется",
+    "резюме",
+    "ищу работу",
 ]
 
 
@@ -81,8 +79,6 @@ SERVICE_OFFER_MARKERS = [
     "услуги мастера",
     "мои услуги",
     "наши услуги",
-    "услуги от",
-    "услуги с",
     "обращайтесь",
     "звоните",
     "пишите в личку",
@@ -165,10 +161,6 @@ CLIENT_REQUEST_MARKERS = [
     "кто делает",
     "кто устанавливает",
     "кто ремонтирует",
-
-    "есть мастер",
-    "есть сантехник",
-    "есть электрик",
 ]
 
 
@@ -209,15 +201,13 @@ def is_russian_text(text):
         "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
     )
 
-    text_lower = text.lower()
-
-    russian_count = sum(
+    count = sum(
         1
-        for char in text_lower
+        for char in text.lower()
         if char in russian_letters
     )
 
-    return russian_count >= 5
+    return count >= 5
 
 
 def is_vacancy(text):
@@ -390,10 +380,7 @@ def analyze_ad(text):
     }
 
 
-def search_web(
-    query,
-    recency_minutes=7200
-):
+def search_web(query, recency_minutes=7200):
     api_key = os.environ.get(
         "TINYFISH_API_KEY"
     )
@@ -403,18 +390,16 @@ def search_web(
             "Не найден секрет TINYFISH_API_KEY"
         )
 
-    params = {
-        "query": query,
-        "language": "ru",
-        "recency_minutes": recency_minutes
-    }
-
     response = requests.get(
         "https://api.search.tinyfish.ai",
         headers={
             "X-API-Key": api_key
         },
-        params=params,
+        params={
+            "query": query,
+            "language": "ru",
+            "recency_minutes": recency_minutes
+        },
         timeout=30
     )
 
@@ -423,7 +408,7 @@ def search_web(
     return response.json()
 
 
-def fetch_web(urls):
+def run_agent(url, goal, timeout=120):
     api_key = os.environ.get(
         "TINYFISH_API_KEY"
     )
@@ -433,75 +418,55 @@ def fetch_web(urls):
             "Не найден секрет TINYFISH_API_KEY"
         )
 
-    if not urls:
-        return {
-            "results": []
-        }
-
     response = requests.post(
-        "https://api.fetch.tinyfish.ai",
+        "https://agent.tinyfish.ai/v1/automation/run",
         headers={
             "X-API-Key": api_key,
             "Content-Type": "application/json"
         },
         json={
-            "urls": urls,
-            "format": "markdown"
+            "url": url,
+            "goal": goal,
+            "browser_profile": "lite"
         },
-        timeout=90
+        timeout=timeout
     )
 
     response.raise_for_status()
 
-    return response.json()
+    data = response.json()
 
+    if data.get("status") != "COMPLETED":
+        raise RuntimeError(
+            "TinyFish Agent завершился со статусом: "
+            f"{data.get('status')}"
+        )
 
-def is_facebook_post_url(url):
-    if not url:
-        return False
+    result = data.get("result")
 
-    url_lower = url.lower()
+    if result is None:
+        result = data.get("resultJson")
 
-    return (
-        "facebook.com" in url_lower
-        and "/posts/" in url_lower
-        and "/videos/" not in url_lower
-    )
+    if isinstance(result, dict):
+        return result
 
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
 
-def get_fetched_text(fetch_result):
-    if not isinstance(fetch_result, dict):
-        return ""
+            if isinstance(parsed, dict):
+                return parsed
 
-    for key in [
-        "markdown",
-        "content",
-        "text"
-    ]:
-        value = fetch_result.get(key)
+        except json.JSONDecodeError:
+            pass
 
-        if isinstance(value, str):
-            if value.strip():
-                return value.strip()
+        return {
+            "raw_result": result
+        }
 
-    return ""
-
-
-def get_fetched_url(fetch_result):
-    if not isinstance(fetch_result, dict):
-        return ""
-
-    for key in [
-        "url",
-        "source_url",
-        "sourceUrl"
-    ]:
-        value = fetch_result.get(key)
-
-        if isinstance(value, str):
-            return value.strip()
-
-    return ""
+    return {
+        "raw_result": result
+    }
 
 
 def parse_date(value):
@@ -569,40 +534,7 @@ def parse_date(value):
     return None
 
 
-def extract_result_date(item):
-    if not isinstance(item, dict):
-        return None
-
-    possible_values = [
-        item.get("date"),
-        item.get("published_date"),
-        item.get("publishedDate")
-    ]
-
-    metadata = item.get("metadata")
-
-    if isinstance(metadata, dict):
-        possible_values.extend(
-            [
-                metadata.get("date"),
-                metadata.get("published_date"),
-                metadata.get("publishedDate")
-            ]
-        )
-
-    for value in possible_values:
-        result = parse_date(value)
-
-        if result:
-            return result
-
-    return None
-
-
-def is_fresh_date(
-    value,
-    days=5
-):
+def is_fresh_date(value, days=5):
     parsed = parse_date(value)
 
     if not parsed:
@@ -614,6 +546,29 @@ def is_fresh_date(
     )
 
     return parsed >= cutoff
+
+
+def is_facebook_candidate(url):
+    if not url:
+        return False
+
+    url_lower = url.lower()
+
+    if "facebook.com/groups/" not in url_lower:
+        return False
+
+    forbidden = [
+        "/videos/",
+        "/reels/",
+        "/watch/",
+        "/events/",
+        "/marketplace/"
+    ]
+
+    return not any(
+        part in url_lower
+        for part in forbidden
+    )
 
 
 if __name__ == "__main__":
