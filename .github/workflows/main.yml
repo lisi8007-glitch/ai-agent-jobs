@@ -29,28 +29,43 @@ jobs:
 
           tests = [
               (
-                  "Заявка на замену смесителя",
-                  "Нужно заменить смеситель в квартире",
-                  True
-              ),
-              (
-                  "Поиск мастера для плитки",
-                  "Ищу мастера для укладки плитки",
-                  True
-              ),
-              (
-                  "Заявка сантехнику",
+                  "Заявка на сантехника",
                   "Нужен сантехник, течёт труба",
                   True
               ),
               (
-                  "Вакансия сантехника",
+                  "Заявка на электрика",
+                  "Ищу электрика, не работает розетка",
+                  True
+              ),
+              (
+                  "Заявка на плиточника",
+                  "Посоветуйте плиточника для ванной",
+                  True
+              ),
+              (
+                  "Заявка на технику",
+                  "Не работает стиральная машина, нужен мастер",
+                  True
+              ),
+              (
+                  "Аренда квартиры",
+                  "Сдам квартиру в Святом Власе посуточно",
+                  False
+              ),
+              (
+                  "Продажа квартиры",
+                  "Продам апартаменты в Солнечном берегу",
+                  False
+              ),
+              (
+                  "Вакансия",
                   "Требуется сантехник. Работа официальная.",
                   False
               ),
               (
-                  "Мастер предлагает услуги",
-                  "Сантехник: оказываю услуги по ремонту",
+                  "Реклама мастера",
+                  "Сантехник, оказываю услуги по ремонту",
                   False
               )
           ]
@@ -71,12 +86,11 @@ jobs:
                   )
 
           print(
-              "\n=== ВСЕ ТЕСТЫ КЛАССИФИКАТОРА "
-              "ПРОЙДЕНЫ ==="
+              "\n=== ВСЕ ТЕСТЫ КЛАССИФИКАТОРА ПРОЙДЕНЫ ==="
           )
           PY
 
-      - name: Реальный многозапросный поиск TinyFish
+      - name: Реальный поиск свежих заявок
         env:
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
@@ -84,6 +98,7 @@ jobs:
           from agent import search_web, analyze_ad
           from collections import Counter
           import time
+          from datetime import datetime, timezone
           from urllib.parse import urlsplit, urlunsplit
 
           cities = [
@@ -97,27 +112,36 @@ jobs:
           ]
 
           query_templates = [
-              '"{city}" "нужен мастер" сантехник',
+              '"{city}" "нужен сантехник"',
+              '"{city}" "ищу сантехника"',
+              '"{city}" "нужен электрик"',
+              '"{city}" "ищу электрика"',
+              '"{city}" "нужен мастер" ремонт',
               '"{city}" "ищу мастера" ремонт',
               '"{city}" "посоветуйте мастера" ремонт',
+              '"{city}" "кто может" ремонт',
               '"{city}" "не работает" мастер',
+              '"{city}" "сломался" мастер',
+              '"{city}" "нужен плиточник"',
+              '"{city}" "нужен мастер" бытовая техника',
           ]
 
           seen_urls = set()
           matches = []
           reason_counts = Counter()
           total_results = 0
+          failed_queries = 0
 
-          print("=== НАСТОЯЩИЙ ПОИСК ЗАЯВОК КЛИЕНТОВ ===")
+          cutoff = datetime.now(timezone.utc).timestamp() - 5 * 24 * 60 * 60
+
+          print("=== ПОИСК СВЕЖИХ ЗАЯВОК КЛИЕНТОВ ===")
           print(f"Городов: {len(cities)}")
-          print(
-              f"Запросов на город: "
-              f"{len(query_templates)}"
-          )
+          print(f"Запросов на город: {len(query_templates)}")
           print(
               f"Всего поисковых запросов: "
               f"{len(cities) * len(query_templates)}"
           )
+          print("Период: последние 5 дней")
 
           for city in cities:
               for template in query_templates:
@@ -125,15 +149,26 @@ jobs:
                   query = (
                       "site:facebook.com "
                       + template.format(city=city)
+                      + ' -"оказываю услуги"'
+                      + ' -"предлагаю услуги"'
+                      + ' -"мои услуги"'
+                      + ' -"услуги мастера"'
+                      + ' -"сдам"'
+                      + ' -"сдаю"'
+                      + ' -"аренда"'
+                      + ' -"продам"'
+                      + ' -"продажа"'
                   )
 
                   print(f"\nПоиск: {query}")
 
                   try:
                       data = search_web(query)
+
                   except Exception as exc:
+                      failed_queries += 1
                       print(f"Ошибка поиска: {exc}")
-                      time.sleep(2)
+                      time.sleep(3)
                       continue
 
                   results = data.get("results", [])
@@ -179,15 +214,16 @@ jobs:
                                   "city": city,
                                   "title": title,
                                   "snippet": snippet,
-                                  "url": url,
+                                  "url": url
                               }
                           )
+
                       else:
                           reason_counts[
                               result["reason"]
                           ] += 1
 
-                  time.sleep(2)
+                  time.sleep(3)
 
           print("\n=== ИТОГ ПОИСКА ===")
           print(
@@ -198,8 +234,12 @@ jobs:
               f"Подходящих заявок: "
               f"{len(matches)}"
           )
+          print(
+              f"Ошибок поисковых запросов: "
+              f"{failed_queries}"
+          )
 
-          print("\n=== РЕАЛЬНЫЕ ЗАЯВКИ ===")
+          print("\n=== НАЙДЕННЫЕ ЗАЯВКИ ===")
 
           for item in matches:
               print("\n--- ЗАЯВКА ---")
@@ -218,18 +258,12 @@ jobs:
 
           print("\n=== ПРИЧИНЫ ОТКЛОНЕНИЯ ===")
 
-          if reason_counts:
-              for reason, count in reason_counts.most_common():
-                  print(
-                      f"{count} — {reason}"
-                  )
-          else:
+          for reason, count in reason_counts.most_common():
               print(
-                  "Нет отклонённых результатов."
+                  f"{count} — {reason}"
               )
 
           print(
-              "\n=== ЭТАП 1: "
-              "МНОГОЗАПРОСНЫЙ ПОИСК ЗАВЕРШЁН ==="
+              "\n=== ЭТАП 1: ПОИСК ЗАВЕРШЁН ==="
           )
           PY
