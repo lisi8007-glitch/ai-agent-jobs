@@ -29,32 +29,32 @@ jobs:
 
           tests = [
               (
-                  "Заявка на сантехника",
+                  "Сантехник",
                   "Нужен сантехник, течёт труба",
                   True
               ),
               (
-                  "Заявка на электрика",
+                  "Электрик",
                   "Ищу электрика, не работает розетка",
                   True
               ),
               (
-                  "Заявка на плиточника",
+                  "Плиточник",
                   "Посоветуйте плиточника для ванной",
                   True
               ),
               (
-                  "Заявка на технику",
+                  "Бытовая техника",
                   "Не работает стиральная машина, нужен мастер",
                   True
               ),
               (
-                  "Аренда квартиры",
+                  "Аренда",
                   "Сдам квартиру в Святом Власе посуточно",
                   False
               ),
               (
-                  "Продажа квартиры",
+                  "Продажа",
                   "Продам апартаменты в Солнечном берегу",
                   False
               ),
@@ -75,23 +75,22 @@ jobs:
               actual = result["match"]
 
               print(f"\n{name}")
-              print(f"Результат агента: {actual}")
+              print(f"Результат: {actual}")
               print(f"Ожидалось: {expected}")
 
               if actual != expected:
                   raise AssertionError(
-                      f"ОШИБКА: {name}. "
+                      f"Ошибка: {name}. "
                       f"Получено {actual}, "
                       f"ожидалось {expected}"
                   )
 
           print(
-              "\n=== ВСЕ ТЕСТЫ "
-              "КЛАССИФИКАТОРА ПРОЙДЕНЫ ==="
+              "\n=== ТЕСТЫ КЛАССИФИКАТОРА ПРОЙДЕНЫ ==="
           )
           PY
 
-      - name: Реальный поиск и проверка публикаций
+      - name: Поиск свежих кандидатов
         env:
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
@@ -101,14 +100,16 @@ jobs:
               fetch_web,
               analyze_ad,
               is_facebook_post_url,
-              get_published_date,
               get_fetched_text,
-              is_fresh_publication
+              get_fetched_url,
+              extract_result_date,
+              is_fresh_date
           )
 
           from collections import Counter
-          import time
           from urllib.parse import urlsplit, urlunsplit
+
+          import time
 
           cities = [
               "Солнечный берег",
@@ -126,30 +127,43 @@ jobs:
               '"{city}" "нужен электрик"',
               '"{city}" "ищу электрика"',
               '"{city}" "нужен плиточник"',
+              '"{city}" "ищу плиточника"',
               '"{city}" "нужен мастер" ремонт',
               '"{city}" "ищу мастера" ремонт',
-              '"{city}" "посоветуйте мастера" ремонт',
+              '"{city}" "посоветуйте мастера"',
+              '"{city}" "подскажите мастера"',
               '"{city}" "кто может" ремонт',
               '"{city}" "не работает" мастер',
               '"{city}" "сломался" мастер',
               '"{city}" "нужен мастер" мебель',
-              '"{city}" "нужен мастер" двери окна',
+              '"{city}" "нужен мастер" двери',
+              '"{city}" "нужен мастер" окна',
               '"{city}" "нужен мастер" кондиционер',
               '"{city}" "нужен мастер" бойлер',
-              '"{city}" "нужен мастер" бытовая техника'
+              '"{city}" "нужен мастер" бытовая техника',
+              '"{city}" "нужно заменить"',
+              '"{city}" "нужно установить"',
+              '"{city}" "нужно починить"',
+              '"{city}" "нужно отремонтировать"'
           ]
 
           seen_urls = set()
           candidates = []
           matches = []
-          reason_counts = Counter()
+
+          rejected = Counter()
 
           search_errors = 0
           fetch_errors = 0
+          old_results = 0
+          unknown_dates = 0
 
           print(
-              "=== ПОИСК И ПРОВЕРКА "
-              "РЕАЛЬНЫХ ПОСТОВ ==="
+              "=== ПОИСК СВЕЖИХ ЗАЯВОК ==="
+          )
+
+          print(
+              "Период: последние 5 дней"
           )
 
           print(
@@ -159,20 +173,6 @@ jobs:
           print(
               f"Запросов на город: "
               f"{len(query_templates)}"
-          )
-
-          total_queries = (
-              len(cities)
-              * len(query_templates)
-          )
-
-          print(
-              f"Всего поисковых запросов: "
-              f"{total_queries}"
-          )
-
-          print(
-              "Период: последние 5 дней"
           )
 
           for city in cities:
@@ -191,21 +191,24 @@ jobs:
                       + ' -"аренда"'
                       + ' -"продам"'
                       + ' -"продажа"'
+                      + ' -"недвижимость"'
                   )
 
                   print(
-                      f"\nПОИСК: {query}"
+                      f"\nПоиск: {query}"
                   )
 
                   try:
-                      data = search_web(query)
+                      data = search_web(
+                          query,
+                          recency_minutes=7200
+                      )
 
                   except Exception as exc:
                       search_errors += 1
                       print(
                           f"Ошибка поиска: {exc}"
                       )
-                      time.sleep(3)
                       continue
 
                   results = data.get(
@@ -225,38 +228,52 @@ jobs:
                       ):
                           continue
 
-                      parsed = urlsplit(url)
-
-                      normalized_url = (
-                          urlunsplit(
-                              (
-                                  parsed.scheme,
-                                  parsed.netloc,
-                                  parsed.path,
-                                  "",
-                                  ""
-                              )
+                      result_date = (
+                          extract_result_date(
+                              item
                           )
                       )
 
-                      if normalized_url in seen_urls:
+                      if result_date:
+                          if not is_fresh_date(
+                              result_date,
+                              days=5
+                          ):
+                              old_results += 1
+                              continue
+
+                      normalized = urlunsplit(
+                          (
+                              urlsplit(url).scheme,
+                              urlsplit(url).netloc,
+                              urlsplit(url).path,
+                              "",
+                              ""
+                          )
+                      )
+
+                      if normalized in seen_urls:
                           continue
 
                       seen_urls.add(
-                          normalized_url
+                          normalized
                       )
 
                       candidates.append(
                           {
                               "city": city,
-                              "url": url
+                              "url": url,
+                              "search_date":
+                                  result_date.isoformat()
+                                  if result_date
+                                  else ""
                           }
                       )
 
                   time.sleep(2)
 
           print(
-              f"\nКандидатов на проверку: "
+              f"\nКандидатов на Fetch: "
               f"{len(candidates)}"
           )
 
@@ -276,13 +293,13 @@ jobs:
               ]
 
               print(
-                  f"\n=== ПРОВЕРКА ПОСТОВ "
+                  f"\nПроверяем "
                   f"{start + 1}-"
-                  f"{start + len(batch)} ==="
+                  f"{start + len(batch)}"
               )
 
               try:
-                  fetch_data = fetch_web(
+                  fetched = fetch_web(
                       urls
                   )
 
@@ -295,11 +312,10 @@ jobs:
                       f"Ошибка Fetch: {exc}"
                   )
 
-                  time.sleep(5)
                   continue
 
               fetched_results = (
-                  fetch_data.get(
+                  fetched.get(
                       "results",
                       []
                   )
@@ -309,131 +325,149 @@ jobs:
 
               for item in fetched_results:
 
-                  url = item.get(
-                      "url",
-                      ""
+                  item_url = get_fetched_url(
+                      item
                   )
 
-                  if url:
-                      fetched_map[url] = item
+                  if item_url:
+                      fetched_map[
+                          item_url
+                      ] = item
+
+                  else:
+                      item_url = item.get(
+                          "url",
+                          ""
+                      )
+
+                      if item_url:
+                          fetched_map[
+                              item_url
+                          ] = item
 
               for candidate in batch:
 
                   url = candidate["url"]
                   city = candidate["city"]
 
-                  fetched = (
+                  page = (
                       fetched_map.get(url)
                   )
 
-                  if not fetched:
-                      reason_counts[
-                          "TinyFish Fetch не вернул настоящий пост."
-                      ] += 1
-                      continue
+                  if not page:
 
-                  published_date = (
-                      get_published_date(
-                          fetched
+                      parsed_target = urlsplit(
+                          url
                       )
-                  )
 
-                  if not published_date:
-                      reason_counts[
-                          "Не удалось подтвердить дату публикации."
-                      ] += 1
-                      continue
+                      for key, value in (
+                          fetched_map.items()
+                      ):
 
-                  if not is_fresh_publication(
-                      published_date,
-                      days=5
-                  ):
-                      reason_counts[
-                          "Публикация старше 5 дней."
+                          parsed_key = urlsplit(
+                              key
+                          )
+
+                          if (
+                              parsed_key.netloc
+                              == parsed_target.netloc
+                              and
+                              parsed_key.path
+                              == parsed_target.path
+                          ):
+                              page = value
+                              break
+
+                  if not page:
+                      rejected[
+                          "Fetch не вернул страницу"
                       ] += 1
                       continue
 
                   text = get_fetched_text(
-                      fetched
+                      page
                   )
 
                   if not text:
-                      reason_counts[
-                          "Не удалось получить текст настоящего поста."
+                      rejected[
+                          "Нет текста настоящего поста"
                       ] += 1
                       continue
 
-                  result = analyze_ad(text)
+                  result = analyze_ad(
+                      text
+                  )
 
                   if not result["match"]:
-                      reason_counts[
+
+                      rejected[
                           result["reason"]
                       ] += 1
+
                       continue
+
+                  city_names = [
+                      "солнечный берег",
+                      "святой влас",
+                      "свети влас",
+                      "равда",
+                      "бургас",
+                      "созополь",
+                      "созопол",
+                      "приморско",
+                      "варна",
+                      "несебр",
+                      "несебър"
+                  ]
 
                   text_lower = text.lower()
 
-                  city_found = (
-                      city.lower()
-                      in text_lower
-                  )
+                  if not any(
+                      name in text_lower
+                      for name in city_names
+                  ):
 
-                  if not city_found:
+                      rejected[
+                          "Локация не подтверждена"
+                      ] += 1
 
-                      local_words = [
-                          "несебр",
-                          "несебър",
-                          "свети влас",
-                          "святой влас",
-                          "солнечный берег",
-                          "сунny beach",
-                          "равда",
-                          "бургас",
-                          "созополь",
-                          "созопол",
-                          "приморско",
-                          "варна"
-                      ]
-
-                      if not any(
-                          word in text_lower
-                          for word in local_words
-                      ):
-                          reason_counts[
-                              "В тексте поста не подтверждена нужная локация."
-                          ] += 1
-                          continue
-
-                  title = fetched.get(
-                      "title",
-                      ""
-                  )
+                      continue
 
                   matches.append(
                       {
                           "city": city,
-                          "title": title,
-                          "published_date":
-                              published_date.isoformat(),
+                          "title": page.get(
+                              "title",
+                              ""
+                          ),
                           "text": text[:4000],
-                          "url": url
+                          "url": url,
+                          "date":
+                              candidate[
+                                  "search_date"
+                              ] or "подтверждается Search"
                       }
                   )
 
               time.sleep(2)
 
           print(
-              "\n=== ИТОГ ПРОВЕРКИ ==="
+              "\n=== ИТОГ ==="
           )
 
           print(
-              f"Всего кандидатов: "
+              f"Кандидатов: "
               f"{len(candidates)}"
           )
 
           print(
-              f"Настоящих свежих заявок: "
-              f"{len(matches)}"
+              f"Старых результатов отброшено: "
+              f"{old_results}"
+          )
+
+          print(
+              f"Неизвестных дат: "
+              f"{unknown_dates}"
           )
 
           print(
@@ -447,8 +481,12 @@ jobs:
           )
 
           print(
-              "\n=== ТОЛЬКО РЕАЛЬНЫЕ "
-              "СВЕЖИЕ ЗАЯВКИ ==="
+              f"РЕАЛЬНЫХ ЗАЯВОК: "
+              f"{len(matches)}"
+          )
+
+          print(
+              "\n=== РЕАЛЬНЫЕ ЗАЯВКИ ==="
           )
 
           for item in matches:
@@ -458,13 +496,11 @@ jobs:
               )
 
               print(
-                  f"Город: "
-                  f"{item['city']}"
+                  f"Город: {item['city']}"
               )
 
               print(
-                  f"Дата: "
-                  f"{item['published_date']}"
+                  f"Дата: {item['date']}"
               )
 
               print(
@@ -487,15 +523,14 @@ jobs:
           )
 
           for reason, count in (
-              reason_counts.most_common()
+              rejected.most_common()
           ):
+
               print(
                   f"{count} — {reason}"
               )
 
           print(
-              "\n=== ЭТАП 2: "
-              "ПРОВЕРКА НАСТОЯЩИХ ПОСТОВ "
-              "ЗАВЕРШЕН ==="
+              "\n=== ПРОВЕРКА ЗАВЕРШЕНА ==="
           )
           PY
