@@ -26,27 +26,192 @@ EXCLUDED_KEYWORDS = [
     for word in CONFIG.get("exclude", [])
 ]
 
-INCLUDED_KEYWORDS = [
+CONFIG_INCLUDED_KEYWORDS = [
     word.lower()
     for word in CONFIG.get("include", [])
 ]
+
+
+# Дополнительные темы работ.
+# Они встроены в код, поэтому классификатор
+# не зависит только от agent_config.json.
+BUILTIN_REPAIR_TOPICS = [
+    # Сантехника
+    "сантехник",
+    "сантехника",
+    "смеситель",
+    "кран",
+    "сифон",
+    "унитаз",
+    "труба",
+    "трубы",
+    "водопровод",
+    "протечка",
+    "течет",
+    "течёт",
+    "засор",
+    "бойлер",
+    "водонагреватель",
+
+    # Электрика
+    "электрик",
+    "электрика",
+    "розетка",
+    "розетки",
+    "выключатель",
+    "выключатели",
+    "проводка",
+    "лампа",
+    "лампы",
+    "светильник",
+    "освещение",
+    "электричество",
+
+    # Кондиционирование
+    "кондиционер",
+    "кондиционеры",
+    "кондиционирование",
+    "вентиляция",
+
+    # Ремонт и отделка
+    "ремонт",
+    "ремонт квартиры",
+    "ремонт дома",
+    "отделка",
+    "отделочные работы",
+    "штукатурка",
+    "штукатур",
+    "шпатлевка",
+    "шпаклевка",
+    "маляр",
+    "покраска",
+    "обои",
+    "гипсокартон",
+    "плитка",
+    "плиточник",
+    "кафель",
+    "затирка",
+    "ламинат",
+    "паркет",
+    "напольное покрытие",
+    "пол",
+    "плинтус",
+    "потолок",
+
+    # Двери и окна
+    "дверь",
+    "двери",
+    "замок",
+    "замки",
+    "окно",
+    "окна",
+    "стекло",
+    "стеклопакет",
+    "жалюзи",
+    "москитная сетка",
+
+    # Мебель
+    "мебель",
+    "шкаф",
+    "шкафа",
+    "шкафы",
+    "комод",
+    "комоды",
+    "кровать",
+    "кровати",
+    "стол",
+    "столы",
+    "стул",
+    "стулья",
+    "тумба",
+    "тумбы",
+    "диван",
+    "диваны",
+    "кухня",
+    "кухни",
+    "гардероб",
+    "гардеробная",
+    "полка",
+    "полки",
+    "карниз",
+    "карнизы",
+    "сборка мебели",
+    "собрать мебель",
+    "установка мебели",
+    "установить мебель",
+
+    # Бытовая техника
+    "бытовая техника",
+    "стиральная машина",
+    "стиральная",
+    "посудомоечная машина",
+    "посудомойка",
+    "холодильник",
+    "холодильники",
+    "духовка",
+    "духовой шкаф",
+    "варочная панель",
+    "плита",
+    "вытяжка",
+    "микроволновка",
+    "микроволновая печь",
+
+    # Монтаж и установка
+    "монтаж",
+    "монтажные работы",
+    "установка",
+    "установить",
+    "установки",
+    "подключить",
+    "подключение",
+    "повесить",
+    "закрепить",
+    "крепление",
+    "собрать",
+    "сборка",
+    "заменить",
+    "замена",
+    "починить",
+    "починка",
+    "отремонтировать",
+
+    # Прочее
+    "мелкий ремонт",
+    "мастер",
+    "строитель",
+]
+
+
+INCLUDED_KEYWORDS = list(
+    dict.fromkeys(
+        CONFIG_INCLUDED_KEYWORDS
+        + BUILTIN_REPAIR_TOPICS
+    )
+)
 
 
 VACANCY_MARKERS = [
     "вакансия",
     "вакансии",
     "ищем сотрудника",
+    "ищем работников",
     "ищем работника",
     "требуется сотрудник",
+    "требуется сотрудник",
     "требуется работник",
+    "требуются работники",
     "требуется персонал",
     "нужен сотрудник",
     "нужен работник",
+    "нужны работники",
     "работа официальная",
     "официальное трудоустройство",
+    "официальная работа",
     "трудоустройство",
     "график работы",
     "сменный график",
+    "полный рабочий день",
+    "неполный рабочий день",
     "смена",
     "ставка",
     "заработная плата",
@@ -54,6 +219,7 @@ VACANCY_MARKERS = [
     "оклад",
     "резюме",
     "ищу работу",
+    "работа в компании",
 ]
 
 
@@ -79,6 +245,7 @@ SERVICE_OFFER_MARKERS = [
     "услуги мастера",
     "мои услуги",
     "наши услуги",
+    "услуги мастера",
     "обращайтесь",
     "звоните",
     "пишите в личку",
@@ -91,6 +258,7 @@ SERVICE_OFFER_MARKERS = [
 
 
 CLIENT_REQUEST_MARKERS = [
+    # Прямой поиск мастера
     "нужен мастер",
     "нужна мастер",
     "нужен сантехник",
@@ -114,6 +282,7 @@ CLIENT_REQUEST_MARKERS = [
     "ищем электрика",
     "ищем специалиста",
 
+    # Рекомендации
     "кто может",
     "кто сможет",
     "кто знает мастера",
@@ -132,35 +301,78 @@ CLIENT_REQUEST_MARKERS = [
     "подскажите плиточника",
     "подскажите специалиста",
 
+    # Требуется
     "требуется мастер",
     "требуется сантехник",
     "требуется электрик",
     "требуется плиточник",
     "требуется специалист",
 
+    # Нужно сделать
     "нужно установить",
     "нужно заменить",
     "нужно отремонтировать",
     "нужно починить",
+    "нужно собрать",
+    "нужно подключить",
+    "нужно повесить",
+    "нужно закрепить",
+    "нужно покрасить",
+    "нужно уложить",
+    "нужно смонтировать",
 
     "надо установить",
     "надо заменить",
     "надо отремонтировать",
     "надо починить",
+    "надо собрать",
+    "надо подключить",
+    "надо повесить",
+    "надо закрепить",
+    "надо покрасить",
+    "надо уложить",
+    "надо смонтировать",
 
     "необходимо установить",
     "необходимо заменить",
     "необходимо отремонтировать",
     "необходимо починить",
+    "необходимо собрать",
+    "необходимо подключить",
+    "необходимо повесить",
+    "необходимо закрепить",
+    "необходимо покрасить",
+    "необходимо уложить",
+    "необходимо смонтировать",
 
+    # Желание клиента
     "хочу установить",
     "хочу заменить",
     "хочу отремонтировать",
+    "хочу починить",
+    "хочу собрать",
+    "хочу подключить",
+    "хочу повесить",
+    "хочу закрепить",
 
+    # Кто занимается
     "кто занимается",
     "кто делает",
     "кто устанавливает",
     "кто ремонтирует",
+    "кто собирает",
+    "кто подключает",
+    "кто может установить",
+    "кто может заменить",
+    "кто может починить",
+    "кто может собрать",
+
+    # Есть ли специалист
+    "есть мастер",
+    "есть сантехник",
+    "есть электрик",
+    "есть плиточник",
+    "есть специалист",
 ]
 
 
@@ -170,24 +382,39 @@ PROBLEM_MARKERS = [
     "сломалось",
     "сломались",
     "не работает",
+    "не работают",
     "не включается",
+    "не включаются",
     "не выключается",
+    "не выключаются",
     "не греет",
+    "не греют",
     "не охлаждает",
+    "не охлаждают",
     "течёт",
     "течет",
     "протекает",
+    "протекают",
     "капает",
+    "капают",
     "засорился",
     "засорилась",
+    "засорились",
     "засор",
     "протечка",
+    "протечки",
     "трещина",
+    "трещины",
     "треснул",
     "треснула",
     "разбилось",
     "разбилась",
     "разбит",
+    "разбито",
+    "сломано",
+    "неисправен",
+    "неисправна",
+    "неисправность",
     "нужна помощь",
     "помогите",
 ]
@@ -210,15 +437,22 @@ def is_russian_text(text):
     return count >= 5
 
 
-def is_vacancy(text):
-    if not text:
-        return False
-
+def contains_any(text, markers):
     text_lower = text.lower()
 
     return any(
         marker in text_lower
-        for marker in VACANCY_MARKERS
+        for marker in markers
+    )
+
+
+def is_vacancy(text):
+    if not text:
+        return False
+
+    return contains_any(
+        text,
+        VACANCY_MARKERS
     )
 
 
@@ -226,11 +460,9 @@ def has_client_request(text):
     if not text:
         return False
 
-    text_lower = text.lower()
-
-    return any(
-        marker in text_lower
-        for marker in CLIENT_REQUEST_MARKERS
+    return contains_any(
+        text,
+        CLIENT_REQUEST_MARKERS
     )
 
 
@@ -238,11 +470,9 @@ def has_problem(text):
     if not text:
         return False
 
-    text_lower = text.lower()
-
-    return any(
-        marker in text_lower
-        for marker in PROBLEM_MARKERS
+    return contains_any(
+        text,
+        PROBLEM_MARKERS
     )
 
 
@@ -250,11 +480,9 @@ def has_repair_topic(text):
     if not text:
         return False
 
-    text_lower = text.lower()
-
-    return any(
-        keyword in text_lower
-        for keyword in INCLUDED_KEYWORDS
+    return contains_any(
+        text,
+        INCLUDED_KEYWORDS
     )
 
 
@@ -264,9 +492,9 @@ def is_service_offer(text):
 
     text_lower = text.lower()
 
-    if any(
-        marker in text_lower
-        for marker in SERVICE_OFFER_MARKERS
+    if contains_any(
+        text,
+        SERVICE_OFFER_MARKERS
     ):
         return True
 
@@ -281,6 +509,7 @@ def is_service_offer(text):
 
     advertising_words = [
         "недорого",
+        "недорогие",
         "цена",
         "цены",
         "от 20€",
@@ -288,6 +517,7 @@ def is_service_offer(text):
         "от 30€",
         "от 30 €",
         "доступно",
+        "по доступной цене",
     ]
 
     return (
@@ -309,25 +539,32 @@ def is_repair_request(text):
 
     text_lower = text.lower()
 
+    # Только русский язык
     if (
         LANGUAGE == "ru"
         and not is_russian_text(text)
     ):
         return False
 
+    # Исключённые темы
     for keyword in EXCLUDED_KEYWORDS:
         if keyword in text_lower:
             return False
 
+    # Вакансии
     if is_vacancy(text):
         return False
 
+    # Реклама услуг
     if is_service_offer(text):
         return False
 
+    # Должна присутствовать ремонтная /
+    # бытовая тема
     if not has_repair_topic(text):
         return False
 
+    # Должен быть признак реальной заявки
     if has_client_request(text):
         return True
 
@@ -349,25 +586,23 @@ def analyze_ad(text):
         }
 
     if is_service_offer(text):
-        reason = (
-            "Предложение услуг мастера."
-        )
+        reason = "Предложение услуг мастера."
+
     elif is_vacancy(text):
-        reason = (
-            "Вакансия работодателя."
-        )
+        reason = "Вакансия работодателя."
+
     elif (
         LANGUAGE == "ru"
         and not is_russian_text(text)
     ):
-        reason = (
-            "Объявление не является русскоязычным."
-        )
+        reason = "Объявление не является русскоязычным."
+
     elif has_repair_topic(text):
         reason = (
             "Есть ремонтная тематика, но нет "
             "признаков заявки клиента."
         )
+
     else:
         reason = (
             "Объявление не соответствует критериям."
@@ -380,7 +615,10 @@ def analyze_ad(text):
     }
 
 
-def search_web(query, recency_minutes=7200):
+def search_web(
+    query,
+    recency_minutes=7200
+):
     api_key = os.environ.get(
         "TINYFISH_API_KEY"
     )
@@ -408,7 +646,11 @@ def search_web(query, recency_minutes=7200):
     return response.json()
 
 
-def run_agent(url, goal, timeout=120):
+def run_agent(
+    url,
+    goal,
+    timeout=120
+):
     api_key = os.environ.get(
         "TINYFISH_API_KEY"
     )
@@ -451,6 +693,7 @@ def run_agent(url, goal, timeout=120):
         return result
 
     if isinstance(result, str):
+
         try:
             parsed = json.loads(result)
 
@@ -477,7 +720,10 @@ def parse_date(value):
 
     try:
         result = datetime.fromisoformat(
-            value.replace("Z", "+00:00")
+            value.replace(
+                "Z",
+                "+00:00"
+            )
         )
 
         if result.tzinfo is None:
@@ -499,6 +745,7 @@ def parse_date(value):
     ]
 
     for pattern in patterns:
+
         match = re.search(
             pattern,
             value
@@ -515,6 +762,7 @@ def parse_date(value):
                     int,
                     groups
                 )
+
             else:
                 day, month, year = map(
                     int,
@@ -534,7 +782,10 @@ def parse_date(value):
     return None
 
 
-def is_fresh_date(value, days=5):
+def is_fresh_date(
+    value,
+    days=5
+):
     parsed = parse_date(value)
 
     if not parsed:
@@ -554,24 +805,28 @@ def is_facebook_candidate(url):
 
     url_lower = url.lower()
 
-    if "facebook.com/groups/" not in url_lower:
+    if "facebook.com" not in url_lower:
         return False
 
     forbidden = [
-        "/videos/",
-        "/reels/",
-        "/watch/",
+        "/marketplace/",
         "/events/",
-        "/marketplace/"
+        "/watch/",
+        "/reels/",
+        "/videos/"
     ]
 
-    return not any(
+    if any(
         part in url_lower
         for part in forbidden
-    )
+    ):
+        return False
+
+    return True
 
 
 if __name__ == "__main__":
+
     print(
         "=== ИИ-АГЕНТ ПОИСКА ОБЪЯВЛЕНИЙ ==="
     )
@@ -592,6 +847,11 @@ if __name__ == "__main__":
 
     print(
         f"Тип задач: {TASK_TYPE}"
+    )
+
+    print(
+        f"Количество ключевых слов: "
+        f"{len(INCLUDED_KEYWORDS)}"
     )
 
     print(
