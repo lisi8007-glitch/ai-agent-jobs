@@ -1,7 +1,10 @@
 import json
 import os
-import requests
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import requests
 
 
 CONFIG_PATH = Path(__file__).with_name("agent_config.json")
@@ -17,7 +20,6 @@ TASK_TYPE = CONFIG.get(
     "task_type",
     "ремонтные и бытовые работы"
 )
-
 
 EXCLUDED_KEYWORDS = [
     word.lower()
@@ -342,28 +344,26 @@ def analyze_ad(text):
             "match": True,
             "text": text,
             "reason": (
-                "Объявление похоже на заявку клиента "
-                "на ремонтные или бытовые работы."
+                "Это похоже на реальную заявку "
+                "клиента на ремонтные или бытовые работы."
             )
         }
 
     if is_service_offer(text):
         reason = (
-            "Объявление похоже на предложение услуг "
-            "мастера, а не на заявку клиента."
+            "Это похоже на предложение услуг "
+            "мастера."
         )
     elif is_vacancy(text):
         reason = (
-            "Объявление похоже на вакансию "
-            "работодателя."
+            "Это похоже на вакансию работодателя."
         )
     elif (
         LANGUAGE == "ru"
         and not is_russian_text(text)
     ):
         reason = (
-            "Объявление не является "
-            "русскоязычным."
+            "Объявление не является русскоязычным."
         )
     elif has_repair_topic(text):
         reason = (
@@ -410,9 +410,201 @@ def search_web(query):
     return response.json()
 
 
+def fetch_web(urls):
+    """
+    Получает настоящий контент страниц через TinyFish Fetch.
+    Максимум 10 URL за один запрос.
+    """
+
+    api_key = os.environ.get(
+        "TINYFISH_API_KEY"
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "Не найден секрет TINYFISH_API_KEY"
+        )
+
+    if not urls:
+        return {
+            "results": [],
+            "errors": []
+        }
+
+    response = requests.post(
+        "https://api.fetch.tinyfish.ai",
+        headers={
+            "X-API-Key": api_key,
+            "Content-Type": "application/json"
+        },
+        json={
+            "urls": urls,
+            "format": "markdown"
+        },
+        timeout=90
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+def is_facebook_post_url(url):
+    if not url:
+        return False
+
+    url_lower = url.lower()
+
+    if "facebook.com" not in url_lower:
+        return False
+
+    if "/posts/" not in url_lower:
+        return False
+
+    if "/videos/" in url_lower:
+        return False
+
+    return True
+
+
+def parse_date(value):
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(
+                tzinfo=timezone.utc
+            )
+
+        return parsed.astimezone(timezone.utc)
+
+    except ValueError:
+        pass
+
+    patterns = [
+        r"(\d{4})-(\d{2})-(\d{2})",
+        r"(\d{2})\.(\d{2})\.(\d{4})",
+        r"(\d{2})/(\d{2})/(\d{4})",
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            value
+        )
+
+        if not match:
+            continue
+
+        groups = match.groups()
+
+        try:
+            if len(groups[0]) == 4:
+                year, month, day = map(
+                    int,
+                    groups
+                )
+            else:
+                day, month, year = map(
+                    int,
+                    groups
+                )
+
+            return datetime(
+                year,
+                month,
+                day,
+                tzinfo=timezone.utc
+            )
+
+        except ValueError:
+            continue
+
+    return None
+
+
+def get_published_date(fetch_result):
+    if not isinstance(fetch_result, dict):
+        return None
+
+    candidates = [
+        fetch_result.get("published_date"),
+        fetch_result.get("publishedDate"),
+    ]
+
+    metadata = fetch_result.get("metadata")
+
+    if isinstance(metadata, dict):
+        candidates.extend(
+            [
+                metadata.get("published_date"),
+                metadata.get("publishedDate"),
+            ]
+        )
+
+    for value in candidates:
+
+        parsed = parse_date(value)
+
+        if parsed:
+            return parsed
+
+    return None
+
+
+def get_fetched_text(fetch_result):
+    if not isinstance(fetch_result, dict):
+        return ""
+
+    for key in [
+        "text",
+        "content",
+        "markdown"
+    ]:
+        value = fetch_result.get(key)
+
+        if isinstance(value, str):
+            if value.strip():
+                return value.strip()
+
+    return ""
+
+
+def is_fresh_publication(
+    published_date,
+    days=5
+):
+    if not published_date:
+        return False
+
+    now = datetime.now(timezone.utc)
+
+    cutoff = now - timedelta(
+        days=days
+    )
+
+    return published_date >= cutoff
+
+
 if __name__ == "__main__":
     print(
-        "=== ИИ-агент поиска объявлений ==="
+        "=== ИИ-АГЕНТ ПОИСКА ОБЪЯВЛЕНИЙ ==="
     )
 
     print(
