@@ -20,7 +20,7 @@ jobs:
         run: |
           pip install requests
 
-      - name: Тестирование агента
+      - name: Тестирование классификатора
         env:
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
@@ -60,99 +60,176 @@ jobs:
               actual = result["match"]
 
               print(f"\n{name}")
-              print(f"Текст: {text}")
               print(f"Результат агента: {actual}")
               print(f"Ожидалось: {expected}")
 
               if actual != expected:
                   raise AssertionError(
-                      f"ОШИБКА: {name}. Получено {actual}, ожидалось {expected}"
+                      f"ОШИБКА: {name}. "
+                      f"Получено {actual}, "
+                      f"ожидалось {expected}"
                   )
 
-          print("\n=== ВСЕ ТЕСТЫ ПРОЙДЕНЫ ===")
+          print(
+              "\n=== ВСЕ ТЕСТЫ КЛАССИФИКАТОРА "
+              "ПРОЙДЕНЫ ==="
+          )
           PY
 
-      - name: Проверка реального поиска TinyFish
+      - name: Реальный многозапросный поиск TinyFish
         env:
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
           python - <<'PY'
           from agent import search_web, analyze_ad
-          import json
+          from collections import Counter
+          import time
+          from urllib.parse import urlsplit, urlunsplit
 
-          query = (
-              'site:facebook.com '
-              '"Солнечный берег" '
-              '"Святой Влас" '
-              'Болгария '
-              'мастер ремонт сантехник квартира'
-          )
+          cities = [
+              "Солнечный берег",
+              "Святой Влас",
+              "Равда",
+              "Бургас",
+              "Созополь",
+              "Приморско",
+              "Варна",
+          ]
 
-          print("=== ЗАПРОС TINYFISH ===")
-          print(query)
+          query_templates = [
+              '"{city}" "нужен мастер" сантехник',
+              '"{city}" "ищу мастера" ремонт',
+              '"{city}" "посоветуйте мастера" ремонт',
+              '"{city}" "не работает" мастер',
+          ]
 
-          data = search_web(query)
-
-          print("\n=== РЕЗУЛЬТАТ TINYFISH ===")
-          print(
-              json.dumps(
-                  data,
-                  ensure_ascii=False,
-                  indent=2
-              )[:12000]
-          )
-
-          results = data.get("results", [])
-
-          print(f"\nНайдено результатов: {len(results)}")
-
-          if not results:
-              raise RuntimeError(
-                  "TinyFish не вернул результатов"
-              )
-
-          print("\n=== КЛАССИФИКАЦИЯ РЕЗУЛЬТАТОВ ===")
-
+          seen_urls = set()
           matches = []
+          reason_counts = Counter()
+          total_results = 0
 
-          for item in results:
-              title = item.get("title", "")
-              snippet = item.get("snippet", "")
-              url = item.get("url", "")
-
-              text = f"{title} {snippet}"
-
-              result = analyze_ad(text)
-
-              print("\n---")
-              print(f"Заголовок: {title}")
-              print(f"Результат: {result['match']}")
-              print(f"Ссылка: {url}")
-
-              if result["match"]:
-                  matches.append(item)
-
+          print("=== НАСТОЯЩИЙ ПОИСК ЗАЯВОК КЛИЕНТОВ ===")
+          print(f"Городов: {len(cities)}")
           print(
-              f"\n=== ПОДХОДЯЩИХ ЗАЯВОК: "
-              f"{len(matches)} ==="
+              f"Запросов на город: "
+              f"{len(query_templates)}"
           )
+          print(
+              f"Всего поисковых запросов: "
+              f"{len(cities) * len(query_templates)}"
+          )
+
+          for city in cities:
+              for template in query_templates:
+
+                  query = (
+                      "site:facebook.com "
+                      + template.format(city=city)
+                  )
+
+                  print(f"\nПоиск: {query}")
+
+                  try:
+                      data = search_web(query)
+                  except Exception as exc:
+                      print(f"Ошибка поиска: {exc}")
+                      time.sleep(2)
+                      continue
+
+                  results = data.get("results", [])
+
+                  print(
+                      f"Результатов: {len(results)}"
+                  )
+
+                  for item in results:
+
+                      title = item.get("title", "")
+                      snippet = item.get("snippet", "")
+                      url = item.get("url", "")
+
+                      if not url:
+                          continue
+
+                      parsed = urlsplit(url)
+
+                      normalized_url = urlunsplit(
+                          (
+                              parsed.scheme,
+                              parsed.netloc,
+                              parsed.path,
+                              "",
+                              ""
+                          )
+                      )
+
+                      if normalized_url in seen_urls:
+                          continue
+
+                      seen_urls.add(normalized_url)
+                      total_results += 1
+
+                      text = f"{title} {snippet}"
+
+                      result = analyze_ad(text)
+
+                      if result["match"]:
+                          matches.append(
+                              {
+                                  "city": city,
+                                  "title": title,
+                                  "snippet": snippet,
+                                  "url": url,
+                              }
+                          )
+                      else:
+                          reason_counts[
+                              result["reason"]
+                          ] += 1
+
+                  time.sleep(2)
+
+          print("\n=== ИТОГ ПОИСКА ===")
+          print(
+              f"Уникальных результатов: "
+              f"{total_results}"
+          )
+          print(
+              f"Подходящих заявок: "
+              f"{len(matches)}"
+          )
+
+          print("\n=== РЕАЛЬНЫЕ ЗАЯВКИ ===")
 
           for item in matches:
-              print("\n--- ПОДХОДЯЩАЯ ЗАЯВКА ---")
+              print("\n--- ЗАЯВКА ---")
               print(
-                  f"Заголовок: "
-                  f"{item.get('title', '')}"
+                  f"Город: {item['city']}"
               )
               print(
-                  f"Описание: "
-                  f"{item.get('snippet', '')}"
+                  f"Заголовок: {item['title']}"
               )
               print(
-                  f"Ссылка: "
-                  f"{item.get('url', '')}"
+                  f"Описание: {item['snippet']}"
+              )
+              print(
+                  f"Ссылка: {item['url']}"
+              )
+
+          print("\n=== ПРИЧИНЫ ОТКЛОНЕНИЯ ===")
+
+          if reason_counts:
+              for reason, count in reason_counts.most_common():
+                  print(
+                      f"{count} — {reason}"
+                  )
+          else:
+              print(
+                  "Нет отклонённых результатов."
               )
 
           print(
-              "\n=== ПОИСК И КЛАССИФИКАЦИЯ РАБОТАЮТ ==="
+              "\n=== ЭТАП 1: "
+              "МНОГОЗАПРОСНЫЙ ПОИСК ЗАВЕРШЁН ==="
           )
           PY
