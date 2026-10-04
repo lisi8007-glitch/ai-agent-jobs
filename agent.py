@@ -104,6 +104,7 @@ CLIENT_REQUEST_MARKERS = [
     "нужен строитель",
     "нужен специалист",
     "нужен человек",
+
     "ищу мастера",
     "ищу сантехника",
     "ищу электрика",
@@ -111,49 +112,60 @@ CLIENT_REQUEST_MARKERS = [
     "ищу строителя",
     "ищу специалиста",
     "ищу человека",
+
     "ищем мастера",
     "ищем сантехника",
     "ищем электрика",
     "ищем специалиста",
+
     "кто может",
     "кто сможет",
     "кто знает мастера",
     "кто знает сантехника",
     "кто знает электрика",
+
     "посоветуйте мастера",
     "посоветуйте сантехника",
     "посоветуйте электрика",
     "посоветуйте плиточника",
     "посоветуйте специалиста",
+
     "подскажите мастера",
     "подскажите сантехника",
     "подскажите электрика",
     "подскажите плиточника",
     "подскажите специалиста",
+
     "требуется мастер",
     "требуется сантехник",
     "требуется электрик",
     "требуется плиточник",
     "требуется специалист",
+
     "нужно установить",
     "нужно заменить",
     "нужно отремонтировать",
     "нужно починить",
+
     "надо установить",
     "надо заменить",
     "надо отремонтировать",
     "надо починить",
+
     "необходимо установить",
     "необходимо заменить",
     "необходимо отремонтировать",
     "необходимо починить",
+
     "хочу установить",
     "хочу заменить",
     "хочу отремонтировать",
+
     "кто занимается",
     "кто делает",
     "кто устанавливает",
     "кто ремонтирует",
+
     "есть мастер",
     "есть сантехник",
     "есть электрик",
@@ -288,19 +300,16 @@ def is_service_offer(text):
         "доступно",
     ]
 
-    has_service_word = any(
-        word in text_lower
-        for word in service_words
-    )
-
-    has_advertising_word = any(
-        word in text_lower
-        for word in advertising_words
-    )
-
     return (
-        has_service_word
-        and has_advertising_word
+        any(
+            word in text_lower
+            for word in service_words
+        )
+        and
+        any(
+            word in text_lower
+            for word in advertising_words
+        )
     )
 
 
@@ -344,19 +353,18 @@ def analyze_ad(text):
             "match": True,
             "text": text,
             "reason": (
-                "Это похоже на реальную заявку "
-                "клиента на ремонтные или бытовые работы."
+                "Реальная заявка клиента "
+                "на ремонтные или бытовые работы."
             )
         }
 
     if is_service_offer(text):
         reason = (
-            "Это похоже на предложение услуг "
-            "мастера."
+            "Предложение услуг мастера."
         )
     elif is_vacancy(text):
         reason = (
-            "Это похоже на вакансию работодателя."
+            "Вакансия работодателя."
         )
     elif (
         LANGUAGE == "ru"
@@ -368,12 +376,11 @@ def analyze_ad(text):
     elif has_repair_topic(text):
         reason = (
             "Есть ремонтная тематика, но нет "
-            "признаков реальной заявки клиента."
+            "признаков заявки клиента."
         )
     else:
         reason = (
-            "Объявление не соответствует "
-            "заданным критериям."
+            "Объявление не соответствует критериям."
         )
 
     return {
@@ -383,7 +390,10 @@ def analyze_ad(text):
     }
 
 
-def search_web(query):
+def search_web(
+    query,
+    recency_minutes=7200
+):
     api_key = os.environ.get(
         "TINYFISH_API_KEY"
     )
@@ -393,15 +403,18 @@ def search_web(query):
             "Не найден секрет TINYFISH_API_KEY"
         )
 
+    params = {
+        "query": query,
+        "language": "ru",
+        "recency_minutes": recency_minutes
+    }
+
     response = requests.get(
         "https://api.search.tinyfish.ai",
         headers={
             "X-API-Key": api_key
         },
-        params={
-            "query": query,
-            "language": "ru"
-        },
+        params=params,
         timeout=30
     )
 
@@ -411,11 +424,6 @@ def search_web(query):
 
 
 def fetch_web(urls):
-    """
-    Получает настоящий контент страниц через TinyFish Fetch.
-    Максимум 10 URL за один запрос.
-    """
-
     api_key = os.environ.get(
         "TINYFISH_API_KEY"
     )
@@ -427,8 +435,7 @@ def fetch_web(urls):
 
     if not urls:
         return {
-            "results": [],
-            "errors": []
+            "results": []
         }
 
     response = requests.post(
@@ -455,43 +462,67 @@ def is_facebook_post_url(url):
 
     url_lower = url.lower()
 
-    if "facebook.com" not in url_lower:
-        return False
+    return (
+        "facebook.com" in url_lower
+        and "/posts/" in url_lower
+        and "/videos/" not in url_lower
+    )
 
-    if "/posts/" not in url_lower:
-        return False
 
-    if "/videos/" in url_lower:
-        return False
+def get_fetched_text(fetch_result):
+    if not isinstance(fetch_result, dict):
+        return ""
 
-    return True
+    for key in [
+        "markdown",
+        "content",
+        "text"
+    ]:
+        value = fetch_result.get(key)
+
+        if isinstance(value, str):
+            if value.strip():
+                return value.strip()
+
+    return ""
+
+
+def get_fetched_url(fetch_result):
+    if not isinstance(fetch_result, dict):
+        return ""
+
+    for key in [
+        "url",
+        "source_url",
+        "sourceUrl"
+    ]:
+        value = fetch_result.get(key)
+
+        if isinstance(value, str):
+            return value.strip()
+
+    return ""
 
 
 def parse_date(value):
     if not value:
         return None
 
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
-
     value = str(value).strip()
 
-    if not value:
-        return None
-
     try:
-        parsed = datetime.fromisoformat(
+        result = datetime.fromisoformat(
             value.replace("Z", "+00:00")
         )
 
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(
+        if result.tzinfo is None:
+            result = result.replace(
                 tzinfo=timezone.utc
             )
 
-        return parsed.astimezone(timezone.utc)
+        return result.astimezone(
+            timezone.utc
+        )
 
     except ValueError:
         pass
@@ -499,11 +530,10 @@ def parse_date(value):
     patterns = [
         r"(\d{4})-(\d{2})-(\d{2})",
         r"(\d{2})\.(\d{2})\.(\d{4})",
-        r"(\d{2})/(\d{2})/(\d{4})",
+        r"(\d{2})/(\d{2})/(\d{4})"
     ]
 
     for pattern in patterns:
-
         match = re.search(
             pattern,
             value
@@ -539,67 +569,51 @@ def parse_date(value):
     return None
 
 
-def get_published_date(fetch_result):
-    if not isinstance(fetch_result, dict):
+def extract_result_date(item):
+    if not isinstance(item, dict):
         return None
 
-    candidates = [
-        fetch_result.get("published_date"),
-        fetch_result.get("publishedDate"),
+    possible_values = [
+        item.get("date"),
+        item.get("published_date"),
+        item.get("publishedDate")
     ]
 
-    metadata = fetch_result.get("metadata")
+    metadata = item.get("metadata")
 
     if isinstance(metadata, dict):
-        candidates.extend(
+        possible_values.extend(
             [
+                metadata.get("date"),
                 metadata.get("published_date"),
-                metadata.get("publishedDate"),
+                metadata.get("publishedDate")
             ]
         )
 
-    for value in candidates:
+    for value in possible_values:
+        result = parse_date(value)
 
-        parsed = parse_date(value)
-
-        if parsed:
-            return parsed
+        if result:
+            return result
 
     return None
 
 
-def get_fetched_text(fetch_result):
-    if not isinstance(fetch_result, dict):
-        return ""
-
-    for key in [
-        "text",
-        "content",
-        "markdown"
-    ]:
-        value = fetch_result.get(key)
-
-        if isinstance(value, str):
-            if value.strip():
-                return value.strip()
-
-    return ""
-
-
-def is_fresh_publication(
-    published_date,
+def is_fresh_date(
+    value,
     days=5
 ):
-    if not published_date:
+    parsed = parse_date(value)
+
+    if not parsed:
         return False
 
-    now = datetime.now(timezone.utc)
-
-    cutoff = now - timedelta(
-        days=days
+    cutoff = (
+        datetime.now(timezone.utc)
+        - timedelta(days=days)
     )
 
-    return published_date >= cutoff
+    return parsed >= cutoff
 
 
 if __name__ == "__main__":
