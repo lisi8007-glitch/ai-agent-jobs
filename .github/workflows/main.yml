@@ -97,12 +97,9 @@ jobs:
           python - <<'PY'
           from agent import (
               search_web,
-              fetch_web,
+              run_agent,
               analyze_ad,
-              is_facebook_post_url,
-              get_fetched_text,
-              get_fetched_url,
-              extract_result_date,
+              is_facebook_candidate,
               is_fresh_date
           )
 
@@ -141,6 +138,7 @@ jobs:
               '"{city}" "нужен мастер" кондиционер',
               '"{city}" "нужен мастер" бойлер',
               '"{city}" "нужен мастер" бытовая техника',
+              '"{city}" "нужен мастер" мелкий ремонт',
               '"{city}" "нужно заменить"',
               '"{city}" "нужно установить"',
               '"{city}" "нужно починить"',
@@ -154,9 +152,7 @@ jobs:
           rejected = Counter()
 
           search_errors = 0
-          fetch_errors = 0
-          old_results = 0
-          unknown_dates = 0
+          agent_errors = 0
 
           print(
               "=== ПОИСК СВЕЖИХ ЗАЯВОК ==="
@@ -175,12 +171,22 @@ jobs:
               f"{len(query_templates)}"
           )
 
+          total_queries = (
+              len(cities)
+              * len(query_templates)
+          )
+
+          print(
+              f"Всего поисковых запросов: "
+              f"{total_queries}"
+          )
+
           for city in cities:
 
               for template in query_templates:
 
                   query = (
-                      "site:facebook.com "
+                      "site:facebook.com/groups/ "
                       + template.format(city=city)
                       + ' -"оказываю услуги"'
                       + ' -"предлагаю услуги"'
@@ -206,9 +212,12 @@ jobs:
 
                   except Exception as exc:
                       search_errors += 1
+
                       print(
                           f"Ошибка поиска: {exc}"
                       )
+
+                      time.sleep(3)
                       continue
 
                   results = data.get(
@@ -223,32 +232,22 @@ jobs:
                           ""
                       )
 
-                      if not is_facebook_post_url(
+                      if not is_facebook_candidate(
                           url
                       ):
                           continue
 
-                      result_date = (
-                          extract_result_date(
-                              item
-                          )
-                      )
+                      parsed = urlsplit(url)
 
-                      if result_date:
-                          if not is_fresh_date(
-                              result_date,
-                              days=5
-                          ):
-                              old_results += 1
-                              continue
-
-                      normalized = urlunsplit(
-                          (
-                              urlsplit(url).scheme,
-                              urlsplit(url).netloc,
-                              urlsplit(url).path,
-                              "",
-                              ""
+                      normalized = (
+                          urlunsplit(
+                              (
+                                  parsed.scheme,
+                                  parsed.netloc,
+                                  parsed.path,
+                                  "",
+                                  ""
+                              )
                           )
                       )
 
@@ -262,194 +261,292 @@ jobs:
                       candidates.append(
                           {
                               "city": city,
-                              "url": url,
-                              "search_date":
-                                  result_date.isoformat()
-                                  if result_date
-                                  else ""
+                              "url": url
                           }
                       )
 
                   time.sleep(2)
 
           print(
-              f"\nКандидатов на Fetch: "
+              f"\nКандидатов для TinyFish Agent: "
               f"{len(candidates)}"
           )
 
-          for start in range(
-              0,
-              len(candidates),
-              10
+          goal = """
+          Открой именно этот URL Facebook.
+
+          Очень важно:
+          не используй результаты поиска;
+          не используй соседние или рекомендуемые публикации;
+          не используй комментарии других публикаций;
+          не используй другие посты группы.
+
+          Найди именно исходную публикацию,
+          которую открывает данный URL.
+
+          Проверь верхнюю часть самой публикации:
+          автор,
+          название группы,
+          дату публикации,
+          основной текст публикации.
+
+          Верни ТОЛЬКО JSON следующего вида:
+
+          {
+            "accessible": true,
+            "is_original_post": true,
+            "published_date": "YYYY-MM-DDTHH:MM:SS+00:00",
+            "author": "имя автора",
+            "group_name": "название группы",
+            "location": "город или место, если указано",
+            "post_text": "полный основной текст исходной публикации",
+            "is_client_request": true,
+            "summary": "кратко, какая работа нужна клиенту"
+          }
+
+          Если страницу нельзя открыть, верни:
+
+          {
+            "accessible": false,
+            "is_original_post": false,
+            "published_date": null,
+            "author": "",
+            "group_name": "",
+            "location": "",
+            "post_text": "",
+            "is_client_request": false,
+            "summary": ""
+          }
+
+          Дату указывай в ISO 8601.
+          Не придумывай дату.
+
+          is_client_request = true только если
+          автор публикации действительно ищет мастера
+          или просит выполнить ремонтную/бытовую работу.
+
+          Рекламу мастера, вакансию, продажу,
+          аренду, недвижимость и информационные
+          публикации помечай как false.
+          """
+
+          for index, candidate in enumerate(
+              candidates,
+              start=1
           ):
 
-              batch = candidates[
-                  start:start + 10
-              ]
-
-              urls = [
-                  item["url"]
-                  for item in batch
-              ]
+              print(
+                  f"\n=== ПРОВЕРКА ПОСТА "
+                  f"{index}/{len(candidates)} ==="
+              )
 
               print(
-                  f"\nПроверяем "
-                  f"{start + 1}-"
-                  f"{start + len(batch)}"
+                  f"URL: {candidate['url']}"
               )
 
               try:
-                  fetched = fetch_web(
-                      urls
+                  result = run_agent(
+                      candidate["url"],
+                      goal,
+                      timeout=120
                   )
 
               except Exception as exc:
-                  fetch_errors += len(
-                      batch
-                  )
+                  agent_errors += 1
 
                   print(
-                      f"Ошибка Fetch: {exc}"
+                      f"Ошибка TinyFish Agent: {exc}"
                   )
+
+                  rejected[
+                      "Ошибка открытия публикации"
+                  ] += 1
 
                   continue
 
-              fetched_results = (
-                  fetched.get(
-                      "results",
-                      []
-                  )
+              if not result.get(
+                  "accessible",
+                  False
+              ):
+                  rejected[
+                      "Публикация недоступна для проверки"
+                  ] += 1
+                  continue
+
+              if not result.get(
+                  "is_original_post",
+                  False
+              ):
+                  rejected[
+                      "Это не исходная публикация"
+                  ] += 1
+                  continue
+
+              published_date = result.get(
+                  "published_date"
               )
 
-              fetched_map = {}
+              if not published_date:
+                  rejected[
+                      "Не удалось определить дату публикации"
+                  ] += 1
+                  continue
 
-              for item in fetched_results:
+              if not is_fresh_date(
+                  published_date,
+                  days=5
+              ):
+                  rejected[
+                      "Публикация старше 5 дней"
+                  ] += 1
+                  continue
 
-                  item_url = get_fetched_url(
-                      item
+              post_text = result.get(
+                  "post_text",
+                  ""
+              )
+
+              if not isinstance(
+                  post_text,
+                  str
+              ):
+                  post_text = str(
+                      post_text
                   )
 
-                  if item_url:
-                      fetched_map[
-                          item_url
-                      ] = item
+              post_text = post_text.strip()
 
-                  else:
-                      item_url = item.get(
-                          "url",
-                          ""
-                      )
+              if not post_text:
+                  rejected[
+                      "Не получен текст исходной публикации"
+                  ] += 1
+                  continue
 
-                      if item_url:
-                          fetched_map[
-                              item_url
-                          ] = item
+              if not result.get(
+                  "is_client_request",
+                  False
+              ):
+                  rejected[
+                      "Автор не ищет мастера"
+                  ] += 1
+                  continue
 
-              for candidate in batch:
+              analysis = analyze_ad(
+                  post_text
+              )
 
-                  url = candidate["url"]
-                  city = candidate["city"]
+              if not analysis["match"]:
+                  rejected[
+                      analysis["reason"]
+                  ] += 1
+                  continue
 
-                  page = (
-                      fetched_map.get(url)
-                  )
+              city = candidate["city"]
 
-                  if not page:
-
-                      parsed_target = urlsplit(
-                          url
-                      )
-
-                      for key, value in (
-                          fetched_map.items()
-                      ):
-
-                          parsed_key = urlsplit(
-                              key
+              location_text = " ".join(
+                  [
+                      str(
+                          result.get(
+                              "location",
+                              ""
                           )
-
-                          if (
-                              parsed_key.netloc
-                              == parsed_target.netloc
-                              and
-                              parsed_key.path
-                              == parsed_target.path
-                          ):
-                              page = value
-                              break
-
-                  if not page:
-                      rejected[
-                          "Fetch не вернул страницу"
-                      ] += 1
-                      continue
-
-                  text = get_fetched_text(
-                      page
-                  )
-
-                  if not text:
-                      rejected[
-                          "Нет текста настоящего поста"
-                      ] += 1
-                      continue
-
-                  result = analyze_ad(
-                      text
-                  )
-
-                  if not result["match"]:
-
-                      rejected[
-                          result["reason"]
-                      ] += 1
-
-                      continue
-
-                  city_names = [
-                      "солнечный берег",
-                      "святой влас",
-                      "свети влас",
-                      "равда",
-                      "бургас",
-                      "созополь",
-                      "созопол",
-                      "приморско",
-                      "варна",
-                      "несебр",
-                      "несебър"
+                      ),
+                      str(
+                          result.get(
+                              "group_name",
+                              ""
+                          )
+                      ),
+                      post_text
                   ]
+              ).lower()
 
-                  text_lower = text.lower()
+              city_names = [
+                  "солнечный берег",
+                  "святой влас",
+                  "свети влас",
+                  "равда",
+                  "бургас",
+                  "созополь",
+                  "созопол",
+                  "приморско",
+                  "варна",
+                  "несебр",
+                  "несебър"
+              ]
 
-                  if not any(
-                      name in text_lower
-                      for name in city_names
-                  ):
+              if not any(
+                  name in location_text
+                  for name in city_names
+              ):
+                  rejected[
+                      "Локация не подтверждена"
+                  ] += 1
+                  continue
 
-                      rejected[
-                          "Локация не подтверждена"
-                      ] += 1
-
-                      continue
-
-                  matches.append(
-                      {
-                          "city": city,
-                          "title": page.get(
-                              "title",
+              matches.append(
+                  {
+                      "city": city,
+                      "published_date":
+                          published_date,
+                      "author":
+                          result.get(
+                              "author",
                               ""
                           ),
-                          "text": text[:4000],
-                          "url": url,
-                          "date":
-                              candidate[
-                                  "search_date"
-                              ] or "подтверждается Search"
-                      }
-                  )
+                      "group_name":
+                          result.get(
+                              "group_name",
+                              ""
+                          ),
+                      "location":
+                          result.get(
+                              "location",
+                              ""
+                          ),
+                      "summary":
+                          result.get(
+                              "summary",
+                              ""
+                          ),
+                      "text":
+                          post_text,
+                      "url":
+                          candidate["url"]
+                  }
+              )
 
-              time.sleep(2)
+              print(
+                  "+++ НАЙДЕНА РЕАЛЬНАЯ ЗАЯВКА +++"
+              )
+
+              print(
+                  f"Город: {city}"
+              )
+
+              print(
+                  f"Дата: {published_date}"
+              )
+
+              print(
+                  f"Автор: "
+                  f"{result.get('author', '')}"
+              )
+
+              print(
+                  f"Группа: "
+                  f"{result.get('group_name', '')}"
+              )
+
+              print(
+                  f"Заявка: "
+                  f"{result.get('summary', '')}"
+              )
+
+              print(
+                  f"Ссылка: "
+                  f"{candidate['url']}"
+              )
 
           print(
               "\n=== ИТОГ ==="
@@ -461,23 +558,13 @@ jobs:
           )
 
           print(
-              f"Старых результатов отброшено: "
-              f"{old_results}"
-          )
-
-          print(
-              f"Неизвестных дат: "
-              f"{unknown_dates}"
-          )
-
-          print(
               f"Ошибок поиска: "
               f"{search_errors}"
           )
 
           print(
-              f"Ошибок Fetch: "
-              f"{fetch_errors}"
+              f"Ошибок TinyFish Agent: "
+              f"{agent_errors}"
           )
 
           print(
@@ -486,7 +573,7 @@ jobs:
           )
 
           print(
-              "\n=== РЕАЛЬНЫЕ ЗАЯВКИ ==="
+              "\n=== РЕАЛЬНЫЕ СВЕЖИЕ ЗАЯВКИ ==="
           )
 
           for item in matches:
@@ -496,16 +583,33 @@ jobs:
               )
 
               print(
-                  f"Город: {item['city']}"
+                  f"Город: "
+                  f"{item['city']}"
               )
 
               print(
-                  f"Дата: {item['date']}"
+                  f"Дата: "
+                  f"{item['published_date']}"
               )
 
               print(
-                  f"Заголовок: "
-                  f"{item['title']}"
+                  f"Автор: "
+                  f"{item['author']}"
+              )
+
+              print(
+                  f"Группа: "
+                  f"{item['group_name']}"
+              )
+
+              print(
+                  f"Локация: "
+                  f"{item['location']}"
+              )
+
+              print(
+                  f"Заявка: "
+                  f"{item['summary']}"
               )
 
               print(
