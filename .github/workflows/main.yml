@@ -20,7 +20,7 @@ jobs:
         run: |
           pip install requests
 
-      - name: Тестирование классификатора
+      - name: Проверка классификатора
         env:
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
@@ -28,69 +28,32 @@ jobs:
           from agent import analyze_ad
 
           tests = [
-              (
-                  "Сантехник",
-                  "Нужен сантехник, течёт труба",
-                  True
-              ),
-              (
-                  "Электрик",
-                  "Ищу электрика, не работает розетка",
-                  True
-              ),
-              (
-                  "Плиточник",
-                  "Посоветуйте плиточника для ванной",
-                  True
-              ),
-              (
-                  "Бытовая техника",
-                  "Не работает стиральная машина, нужен мастер",
-                  True
-              ),
-              (
-                  "Аренда",
-                  "Сдам квартиру в Святом Власе посуточно",
-                  False
-              ),
-              (
-                  "Продажа",
-                  "Продам апартаменты в Солнечном берегу",
-                  False
-              ),
-              (
-                  "Вакансия",
-                  "Требуется сантехник. Работа официальная.",
-                  False
-              ),
-              (
-                  "Реклама мастера",
-                  "Сантехник, оказываю услуги по ремонту",
-                  False
-              )
+              ("Сантехник", "Нужен сантехник, течёт труба", True),
+              ("Электрик", "Ищу электрика, не работает розетка", True),
+              ("Плиточник", "Посоветуйте плиточника для ванной", True),
+              ("Мебель", "Нужно собрать шкаф в квартире", True),
+              ("Бытовая техника", "Не работает стиральная машина, нужен мастер", True),
+              ("Аренда", "Сдам квартиру в Святом Власе посуточно", False),
+              ("Продажа", "Продам апартаменты в Солнечном берегу", False),
+              ("Вакансия", "Требуется сантехник. Работа официальная.", False),
+              ("Реклама", "Сантехник, оказываю услуги по ремонту", False)
           ]
 
           for name, text, expected in tests:
               result = analyze_ad(text)
               actual = result["match"]
 
-              print(f"\n{name}")
-              print(f"Результат: {actual}")
-              print(f"Ожидалось: {expected}")
+              print(f"{name}: {actual}")
 
               if actual != expected:
                   raise AssertionError(
-                      f"Ошибка: {name}. "
-                      f"Получено {actual}, "
-                      f"ожидалось {expected}"
+                      f"Ошибка в тесте: {name}"
                   )
 
-          print(
-              "\n=== ТЕСТЫ КЛАССИФИКАТОРА ПРОЙДЕНЫ ==="
-          )
+          print("=== КЛАССИФИКАТОР РАБОТАЕТ ===")
           PY
 
-      - name: Поиск свежих кандидатов
+      - name: Поиск и проверка реальных Facebook-публикаций
         env:
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
@@ -99,16 +62,16 @@ jobs:
               search_web,
               run_agent,
               analyze_ad,
-              is_facebook_candidate,
               is_fresh_date
           )
 
           from collections import Counter
           from urllib.parse import urlsplit, urlunsplit
 
+          import json
           import time
 
-          cities = [
+          CITIES = [
               "Солнечный берег",
               "Святой Влас",
               "Равда",
@@ -118,75 +81,93 @@ jobs:
               "Варна"
           ]
 
-          query_templates = [
-              '"{city}" "нужен сантехник"',
-              '"{city}" "ищу сантехника"',
-              '"{city}" "нужен электрик"',
-              '"{city}" "ищу электрика"',
-              '"{city}" "нужен плиточник"',
-              '"{city}" "ищу плиточника"',
-              '"{city}" "нужен мастер" ремонт',
-              '"{city}" "ищу мастера" ремонт',
-              '"{city}" "посоветуйте мастера"',
-              '"{city}" "подскажите мастера"',
-              '"{city}" "кто может" ремонт',
-              '"{city}" "не работает" мастер',
-              '"{city}" "сломался" мастер',
-              '"{city}" "нужен мастер" мебель',
-              '"{city}" "нужен мастер" двери',
-              '"{city}" "нужен мастер" окна',
-              '"{city}" "нужен мастер" кондиционер',
-              '"{city}" "нужен мастер" бойлер',
-              '"{city}" "нужен мастер" бытовая техника',
-              '"{city}" "нужен мастер" мелкий ремонт',
-              '"{city}" "нужно заменить"',
-              '"{city}" "нужно установить"',
-              '"{city}" "нужно починить"',
-              '"{city}" "нужно отремонтировать"'
+          SEARCHES = [
+              '"{city}" нужен мастер',
+              '"{city}" ищу мастера',
+              '"{city}" нужен сантехник',
+              '"{city}" ищу сантехника',
+              '"{city}" нужен электрик',
+              '"{city}" ищу электрика',
+              '"{city}" нужен плиточник',
+              '"{city}" ищу плиточника',
+              '"{city}" нужен строитель',
+              '"{city}" ремонт квартиры',
+              '"{city}" мелкий ремонт',
+              '"{city}" установка',
+              '"{city}" монтаж',
+              '"{city}" нужно заменить',
+              '"{city}" нужно установить',
+              '"{city}" нужно починить',
+              '"{city}" не работает',
+              '"{city}" сломался',
+              '"{city}" протечка',
+              '"{city}" сантехника',
+              '"{city}" электрика',
+              '"{city}" кондиционер',
+              '"{city}" бойлер',
+              '"{city}" бытовая техника'
           ]
 
-          seen_urls = set()
-          candidates = []
-          matches = []
+          REJECT_TERMS = [
+              "оказываю услуги",
+              "предлагаю услуги",
+              "мои услуги",
+              "услуги мастера",
+              "вакансия",
+              "требуется сотрудник",
+              "сдам",
+              "сдаю",
+              "аренда",
+              "продам",
+              "продажа",
+              "недвижимость"
+          ]
 
+          CITY_ALIASES = {
+              "Солнечный берег": [
+                  "солнечный берег",
+                  "sunny beach"
+              ],
+              "Святой Влас": [
+                  "святой влас",
+                  "свети влас"
+              ],
+              "Равда": [
+                  "равда"
+              ],
+              "Бургас": [
+                  "бургас"
+              ],
+              "Созополь": [
+                  "созополь",
+                  "созопол"
+              ],
+              "Приморско": [
+                  "приморско"
+              ],
+              "Варна": [
+                  "варна"
+              ]
+          }
+
+          candidates = {}
           rejected = Counter()
+          final_matches = []
 
           search_errors = 0
           agent_errors = 0
 
-          print(
-              "=== ПОИСК СВЕЖИХ ЗАЯВОК ==="
-          )
+          print("=== НОВЫЙ ПОИСК ===")
+          print("Период: последние 5 дней")
+          print(f"Городов: {len(CITIES)}")
+          print(f"Запросов на город: {len(SEARCHES)}")
 
-          print(
-              "Период: последние 5 дней"
-          )
+          for city in CITIES:
 
-          print(
-              f"Городов: {len(cities)}"
-          )
-
-          print(
-              f"Запросов на город: "
-              f"{len(query_templates)}"
-          )
-
-          total_queries = (
-              len(cities)
-              * len(query_templates)
-          )
-
-          print(
-              f"Всего поисковых запросов: "
-              f"{total_queries}"
-          )
-
-          for city in cities:
-
-              for template in query_templates:
+              for template in SEARCHES:
 
                   query = (
-                      "site:facebook.com/groups/ "
+                      "site:facebook.com "
                       + template.format(city=city)
                       + ' -"оказываю услуги"'
                       + ' -"предлагаю услуги"'
@@ -200,10 +181,6 @@ jobs:
                       + ' -"недвижимость"'
                   )
 
-                  print(
-                      f"\nПоиск: {query}"
-                  )
-
                   try:
                       data = search_web(
                           query,
@@ -212,102 +189,137 @@ jobs:
 
                   except Exception as exc:
                       search_errors += 1
-
                       print(
                           f"Ошибка поиска: {exc}"
                       )
-
-                      time.sleep(3)
                       continue
 
-                  results = data.get(
+                  for item in data.get(
                       "results",
                       []
-                  )
-
-                  for item in results:
+                  ):
 
                       url = item.get(
                           "url",
                           ""
                       )
 
-                      if not is_facebook_candidate(
-                          url
+                      if not url:
+                          continue
+
+                      if "facebook.com" not in url.lower():
+                          continue
+
+                      bad_parts = [
+                          "/marketplace/",
+                          "/events/",
+                          "/watch/",
+                          "/reels/",
+                          "/videos/"
+                      ]
+
+                      if any(
+                          part in url.lower()
+                          for part in bad_parts
                       ):
                           continue
 
                       parsed = urlsplit(url)
 
-                      normalized = (
-                          urlunsplit(
-                              (
-                                  parsed.scheme,
-                                  parsed.netloc,
-                                  parsed.path,
-                                  "",
-                                  ""
-                              )
+                      normalized = urlunsplit(
+                          (
+                              parsed.scheme,
+                              parsed.netloc,
+                              parsed.path,
+                              "",
+                              ""
                           )
                       )
 
-                      if normalized in seen_urls:
+                      if normalized in candidates:
                           continue
 
-                      seen_urls.add(
-                          normalized
-                      )
+                      candidates[normalized] = {
+                          "city": city,
+                          "url": url,
+                          "title": item.get(
+                              "title",
+                              ""
+                          ),
+                          "snippet": item.get(
+                              "snippet",
+                              ""
+                          )
+                      }
 
-                      candidates.append(
-                          {
-                              "city": city,
-                              "url": url
-                          }
-                      )
-
-                  time.sleep(2)
+                  time.sleep(1)
 
           print(
-              f"\nКандидатов для TinyFish Agent: "
+              f"\nКандидатов найдено: "
               f"{len(candidates)}"
           )
 
-          goal = """
-          Открой именно этот URL Facebook.
+          AGENT_GOAL = """
+          Ты проверяешь конкретный результат поиска Facebook.
 
-          Очень важно:
-          не используй результаты поиска;
-          не используй соседние или рекомендуемые публикации;
-          не используй комментарии других публикаций;
-          не используй другие посты группы.
+          Открой ИМЕННО переданный URL.
 
-          Найди именно исходную публикацию,
-          которую открывает данный URL.
+          Тебе запрещено:
+          - использовать другой пост;
+          - использовать комментарии других постов;
+          - использовать соседние рекомендации Facebook;
+          - переносить текст из другого результата;
+          - придумывать отсутствующую информацию.
 
-          Проверь верхнюю часть самой публикации:
-          автор,
-          название группы,
-          дату публикации,
-          основной текст публикации.
+          Если URL открывает группу или список публикаций,
+          найди публикацию, которая соответствует
+          исходному результату поиска.
 
-          Верни ТОЛЬКО JSON следующего вида:
+          Нам нужна ТОЛЬКО основная публикация автора.
+
+          Проверь:
+          1. дату публикации;
+          2. автора;
+          3. название группы;
+          4. город или место;
+          5. полный основной текст публикации.
+
+          Нам нужна публикация не старше 5 дней.
+
+          Нам нужна именно заявка клиента:
+          человек ищет мастера или просит выполнить
+          ремонтную/бытовую работу.
+
+          НЕ подходят:
+          - реклама мастера;
+          - предложение услуг;
+          - вакансия;
+          - продажа;
+          - аренда;
+          - недвижимость;
+          - новости;
+          - советы без конкретной потребности;
+          - комментарий к чужой публикации.
+
+          Верни только JSON:
 
           {
-            "accessible": true,
+            "ok": true,
             "is_original_post": true,
             "published_date": "YYYY-MM-DDTHH:MM:SS+00:00",
-            "author": "имя автора",
-            "group_name": "название группы",
-            "location": "город или место, если указано",
-            "post_text": "полный основной текст исходной публикации",
+            "author": "",
+            "group_name": "",
+            "location": "",
+            "post_text": "",
             "is_client_request": true,
-            "summary": "кратко, какая работа нужна клиенту"
+            "work_type": "",
+            "summary": ""
           }
 
-          Если страницу нельзя открыть, верни:
+          Если проверить исходную публикацию невозможно:
 
           {
-            "accessible": false,
+            "ok": false,
             "is_original_post": false,
             "published_date": null,
             "author": "",
@@ -315,61 +327,52 @@ jobs:
             "location": "",
             "post_text": "",
             "is_client_request": false,
+            "work_type": "",
             "summary": ""
           }
 
-          Дату указывай в ISO 8601.
-          Не придумывай дату.
-
-          is_client_request = true только если
-          автор публикации действительно ищет мастера
-          или просит выполнить ремонтную/бытовую работу.
-
-          Рекламу мастера, вакансию, продажу,
-          аренду, недвижимость и информационные
-          публикации помечай как false.
+          НИКОГДА не придумывай дату.
+          НИКОГДА не используй текст из сниппета,
+          если его нет в самой публикации.
           """
 
-          for index, candidate in enumerate(
-              candidates,
+          print(
+              "\n=== ПРОВЕРКА САМИХ ПУБЛИКАЦИЙ ==="
+          )
+
+          for number, candidate in enumerate(
+              candidates.values(),
               start=1
           ):
 
               print(
-                  f"\n=== ПРОВЕРКА ПОСТА "
-                  f"{index}/{len(candidates)} ==="
-              )
-
-              print(
-                  f"URL: {candidate['url']}"
+                  f"\nПубликация "
+                  f"{number}/{len(candidates)}"
               )
 
               try:
                   result = run_agent(
                       candidate["url"],
-                      goal,
+                      AGENT_GOAL,
                       timeout=120
                   )
 
               except Exception as exc:
                   agent_errors += 1
-
-                  print(
-                      f"Ошибка TinyFish Agent: {exc}"
-                  )
-
                   rejected[
-                      "Ошибка открытия публикации"
+                      "Ошибка TinyFish Agent"
                   ] += 1
-
+                  print(
+                      f"Ошибка агента: {exc}"
+                  )
                   continue
 
               if not result.get(
-                  "accessible",
+                  "ok",
                   False
               ):
                   rejected[
-                      "Публикация недоступна для проверки"
+                      "Публикацию нельзя проверить"
                   ] += 1
                   continue
 
@@ -378,7 +381,7 @@ jobs:
                   False
               ):
                   rejected[
-                      "Это не исходная публикация"
+                      "Не исходный пост"
                   ] += 1
                   continue
 
@@ -388,7 +391,7 @@ jobs:
 
               if not published_date:
                   rejected[
-                      "Не удалось определить дату публикации"
+                      "Нет подтверждённой даты"
                   ] += 1
                   continue
 
@@ -397,28 +400,31 @@ jobs:
                   days=5
               ):
                   rejected[
-                      "Публикация старше 5 дней"
+                      "Старше 5 дней"
                   ] += 1
                   continue
 
-              post_text = result.get(
-                  "post_text",
-                  ""
-              )
-
-              if not isinstance(
-                  post_text,
-                  str
-              ):
-                  post_text = str(
-                      post_text
+              post_text = str(
+                  result.get(
+                      "post_text",
+                      ""
                   )
-
-              post_text = post_text.strip()
+              ).strip()
 
               if not post_text:
                   rejected[
-                      "Не получен текст исходной публикации"
+                      "Нет текста исходного поста"
+                  ] += 1
+                  continue
+
+              lower_text = post_text.lower()
+
+              if any(
+                  term in lower_text
+                  for term in REJECT_TERMS
+              ):
+                  rejected[
+                      "Реклама или нежелательный тип публикации"
                   ] += 1
                   continue
 
@@ -427,7 +433,7 @@ jobs:
                   False
               ):
                   rejected[
-                      "Автор не ищет мастера"
+                      "Не заявка клиента"
                   ] += 1
                   continue
 
@@ -440,8 +446,6 @@ jobs:
                       analysis["reason"]
                   ] += 1
                   continue
-
-              city = candidate["city"]
 
               location_text = " ".join(
                   [
@@ -461,91 +465,44 @@ jobs:
                   ]
               ).lower()
 
-              city_names = [
-                  "солнечный берег",
-                  "святой влас",
-                  "свети влас",
-                  "равда",
-                  "бургас",
-                  "созополь",
-                  "созопол",
-                  "приморско",
-                  "варна",
-                  "несебр",
-                  "несебър"
-              ]
+              city = candidate["city"]
 
               if not any(
-                  name in location_text
-                  for name in city_names
+                  alias in location_text
+                  for alias in CITY_ALIASES[city]
               ):
                   rejected[
-                      "Локация не подтверждена"
+                      "Город не подтверждён"
                   ] += 1
                   continue
 
-              matches.append(
+              final_matches.append(
                   {
                       "city": city,
-                      "published_date":
-                          published_date,
-                      "author":
-                          result.get(
-                              "author",
-                              ""
-                          ),
-                      "group_name":
-                          result.get(
-                              "group_name",
-                              ""
-                          ),
-                      "location":
-                          result.get(
-                              "location",
-                              ""
-                          ),
-                      "summary":
-                          result.get(
-                              "summary",
-                              ""
-                          ),
-                      "text":
-                          post_text,
-                      "url":
-                          candidate["url"]
+                      "date": published_date,
+                      "author": result.get(
+                          "author",
+                          ""
+                      ),
+                      "group": result.get(
+                          "group_name",
+                          ""
+                      ),
+                      "location": result.get(
+                          "location",
+                          ""
+                      ),
+                      "work_type": result.get(
+                          "work_type",
+                          ""
+                      ),
+                      "summary": result.get(
+                          "summary",
+                          ""
+                      ),
+                      "text": post_text,
+                      "url": candidate["url"]
                   }
-              )
-
-              print(
-                  "+++ НАЙДЕНА РЕАЛЬНАЯ ЗАЯВКА +++"
-              )
-
-              print(
-                  f"Город: {city}"
-              )
-
-              print(
-                  f"Дата: {published_date}"
-              )
-
-              print(
-                  f"Автор: "
-                  f"{result.get('author', '')}"
-              )
-
-              print(
-                  f"Группа: "
-                  f"{result.get('group_name', '')}"
-              )
-
-              print(
-                  f"Заявка: "
-                  f"{result.get('summary', '')}"
-              )
-
-              print(
-                  f"Ссылка: "
-                  f"{candidate['url']}"
               )
 
           print(
@@ -553,73 +510,64 @@ jobs:
           )
 
           print(
-              f"Кандидатов: "
-              f"{len(candidates)}"
+              f"Кандидатов: {len(candidates)}"
           )
 
           print(
-              f"Ошибок поиска: "
-              f"{search_errors}"
+              f"Ошибок поиска: {search_errors}"
           )
 
           print(
-              f"Ошибок TinyFish Agent: "
-              f"{agent_errors}"
+              f"Ошибок Agent: {agent_errors}"
           )
 
           print(
-              f"РЕАЛЬНЫХ ЗАЯВОК: "
-              f"{len(matches)}"
+              f"РЕАЛЬНЫХ СВЕЖИХ ЗАЯВОК: "
+              f"{len(final_matches)}"
           )
 
           print(
-              "\n=== РЕАЛЬНЫЕ СВЕЖИЕ ЗАЯВКИ ==="
+              "\n=== ЗАЯВКИ ==="
           )
 
-          for item in matches:
+          for item in final_matches:
+
+              print("\n--- ЗАЯВКА ---")
 
               print(
-                  "\n--- ЗАЯВКА ---"
+                  f"Город: {item['city']}"
               )
 
               print(
-                  f"Город: "
-                  f"{item['city']}"
+                  f"Дата: {item['date']}"
               )
 
               print(
-                  f"Дата: "
-                  f"{item['published_date']}"
+                  f"Автор: {item['author']}"
               )
 
               print(
-                  f"Автор: "
-                  f"{item['author']}"
+                  f"Группа: {item['group']}"
               )
 
               print(
-                  f"Группа: "
-                  f"{item['group_name']}"
+                  f"Локация: {item['location']}"
               )
 
               print(
-                  f"Локация: "
-                  f"{item['location']}"
+                  f"Работа: {item['work_type']}"
               )
 
               print(
-                  f"Заявка: "
-                  f"{item['summary']}"
+                  f"Кратко: {item['summary']}"
               )
 
               print(
-                  f"Текст: "
-                  f"{item['text']}"
+                  f"Текст: {item['text']}"
               )
 
               print(
-                  f"Ссылка: "
-                  f"{item['url']}"
+                  f"Ссылка: {item['url']}"
               )
 
           print(
@@ -629,12 +577,31 @@ jobs:
           for reason, count in (
               rejected.most_common()
           ):
-
               print(
                   f"{count} — {reason}"
               )
 
+          with open(
+              "results.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  final_matches,
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
+
           print(
-              "\n=== ПРОВЕРКА ЗАВЕРШЕНА ==="
+              "\n=== ПОИСК ЗАВЕРШЁН ==="
           )
           PY
+
+      - name: Сохранение результатов
+        uses: actions/upload-artifact@v4
+        with:
+          name: найденные-заявки
+          path: results.json
+          if-no-files-found: warn
