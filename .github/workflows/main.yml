@@ -86,19 +86,28 @@ jobs:
                   )
 
           print(
-              "\n=== ВСЕ ТЕСТЫ КЛАССИФИКАТОРА ПРОЙДЕНЫ ==="
+              "\n=== ВСЕ ТЕСТЫ "
+              "КЛАССИФИКАТОРА ПРОЙДЕНЫ ==="
           )
           PY
 
-      - name: Реальный поиск свежих заявок
+      - name: Реальный поиск и проверка публикаций
         env:
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
         run: |
           python - <<'PY'
-          from agent import search_web, analyze_ad
+          from agent import (
+              search_web,
+              fetch_web,
+              analyze_ad,
+              is_facebook_post_url,
+              get_published_date,
+              get_fetched_text,
+              is_fresh_publication
+          )
+
           from collections import Counter
           import time
-          from datetime import datetime, timezone
           from urllib.parse import urlsplit, urlunsplit
 
           cities = [
@@ -108,7 +117,7 @@ jobs:
               "Бургас",
               "Созополь",
               "Приморско",
-              "Варна",
+              "Варна"
           ]
 
           query_templates = [
@@ -116,34 +125,58 @@ jobs:
               '"{city}" "ищу сантехника"',
               '"{city}" "нужен электрик"',
               '"{city}" "ищу электрика"',
+              '"{city}" "нужен плиточник"',
               '"{city}" "нужен мастер" ремонт',
               '"{city}" "ищу мастера" ремонт',
               '"{city}" "посоветуйте мастера" ремонт',
               '"{city}" "кто может" ремонт',
               '"{city}" "не работает" мастер',
               '"{city}" "сломался" мастер',
-              '"{city}" "нужен плиточник"',
-              '"{city}" "нужен мастер" бытовая техника',
+              '"{city}" "нужен мастер" мебель',
+              '"{city}" "нужен мастер" двери окна',
+              '"{city}" "нужен мастер" кондиционер',
+              '"{city}" "нужен мастер" бойлер',
+              '"{city}" "нужен мастер" бытовая техника'
           ]
 
           seen_urls = set()
+          candidates = []
           matches = []
           reason_counts = Counter()
-          total_results = 0
-          failed_queries = 0
 
-          cutoff = datetime.now(timezone.utc).timestamp() - 5 * 24 * 60 * 60
+          search_errors = 0
+          fetch_errors = 0
 
-          print("=== ПОИСК СВЕЖИХ ЗАЯВОК КЛИЕНТОВ ===")
-          print(f"Городов: {len(cities)}")
-          print(f"Запросов на город: {len(query_templates)}")
+          print(
+              "=== ПОИСК И ПРОВЕРКА "
+              "РЕАЛЬНЫХ ПОСТОВ ==="
+          )
+
+          print(
+              f"Городов: {len(cities)}"
+          )
+
+          print(
+              f"Запросов на город: "
+              f"{len(query_templates)}"
+          )
+
+          total_queries = (
+              len(cities)
+              * len(query_templates)
+          )
+
           print(
               f"Всего поисковых запросов: "
-              f"{len(cities) * len(query_templates)}"
+              f"{total_queries}"
           )
-          print("Период: последние 5 дней")
+
+          print(
+              "Период: последние 5 дней"
+          )
 
           for city in cities:
+
               for template in query_templates:
 
                   query = (
@@ -160,110 +193,309 @@ jobs:
                       + ' -"продажа"'
                   )
 
-                  print(f"\nПоиск: {query}")
+                  print(
+                      f"\nПОИСК: {query}"
+                  )
 
                   try:
                       data = search_web(query)
 
                   except Exception as exc:
-                      failed_queries += 1
-                      print(f"Ошибка поиска: {exc}")
+                      search_errors += 1
+                      print(
+                          f"Ошибка поиска: {exc}"
+                      )
                       time.sleep(3)
                       continue
 
-                  results = data.get("results", [])
-
-                  print(
-                      f"Результатов: {len(results)}"
+                  results = data.get(
+                      "results",
+                      []
                   )
 
                   for item in results:
 
-                      title = item.get("title", "")
-                      snippet = item.get("snippet", "")
-                      url = item.get("url", "")
+                      url = item.get(
+                          "url",
+                          ""
+                      )
 
-                      if not url:
+                      if not is_facebook_post_url(
+                          url
+                      ):
                           continue
 
                       parsed = urlsplit(url)
 
-                      normalized_url = urlunsplit(
-                          (
-                              parsed.scheme,
-                              parsed.netloc,
-                              parsed.path,
-                              "",
-                              ""
+                      normalized_url = (
+                          urlunsplit(
+                              (
+                                  parsed.scheme,
+                                  parsed.netloc,
+                                  parsed.path,
+                                  "",
+                                  ""
+                              )
                           )
                       )
 
                       if normalized_url in seen_urls:
                           continue
 
-                      seen_urls.add(normalized_url)
-                      total_results += 1
+                      seen_urls.add(
+                          normalized_url
+                      )
 
-                      text = f"{title} {snippet}"
+                      candidates.append(
+                          {
+                              "city": city,
+                              "url": url
+                          }
+                      )
 
-                      result = analyze_ad(text)
+                  time.sleep(2)
 
-                      if result["match"]:
-                          matches.append(
-                              {
-                                  "city": city,
-                                  "title": title,
-                                  "snippet": snippet,
-                                  "url": url
-                              }
-                          )
-
-                      else:
-                          reason_counts[
-                              result["reason"]
-                          ] += 1
-
-                  time.sleep(3)
-
-          print("\n=== ИТОГ ПОИСКА ===")
           print(
-              f"Уникальных результатов: "
-              f"{total_results}"
+              f"\nКандидатов на проверку: "
+              f"{len(candidates)}"
           )
+
+          for start in range(
+              0,
+              len(candidates),
+              10
+          ):
+
+              batch = candidates[
+                  start:start + 10
+              ]
+
+              urls = [
+                  item["url"]
+                  for item in batch
+              ]
+
+              print(
+                  f"\n=== ПРОВЕРКА ПОСТОВ "
+                  f"{start + 1}-"
+                  f"{start + len(batch)} ==="
+              )
+
+              try:
+                  fetch_data = fetch_web(
+                      urls
+                  )
+
+              except Exception as exc:
+                  fetch_errors += len(
+                      batch
+                  )
+
+                  print(
+                      f"Ошибка Fetch: {exc}"
+                  )
+
+                  time.sleep(5)
+                  continue
+
+              fetched_results = (
+                  fetch_data.get(
+                      "results",
+                      []
+                  )
+              )
+
+              fetched_map = {}
+
+              for item in fetched_results:
+
+                  url = item.get(
+                      "url",
+                      ""
+                  )
+
+                  if url:
+                      fetched_map[url] = item
+
+              for candidate in batch:
+
+                  url = candidate["url"]
+                  city = candidate["city"]
+
+                  fetched = (
+                      fetched_map.get(url)
+                  )
+
+                  if not fetched:
+                      reason_counts[
+                          "TinyFish Fetch не вернул настоящий пост."
+                      ] += 1
+                      continue
+
+                  published_date = (
+                      get_published_date(
+                          fetched
+                      )
+                  )
+
+                  if not published_date:
+                      reason_counts[
+                          "Не удалось подтвердить дату публикации."
+                      ] += 1
+                      continue
+
+                  if not is_fresh_publication(
+                      published_date,
+                      days=5
+                  ):
+                      reason_counts[
+                          "Публикация старше 5 дней."
+                      ] += 1
+                      continue
+
+                  text = get_fetched_text(
+                      fetched
+                  )
+
+                  if not text:
+                      reason_counts[
+                          "Не удалось получить текст настоящего поста."
+                      ] += 1
+                      continue
+
+                  result = analyze_ad(text)
+
+                  if not result["match"]:
+                      reason_counts[
+                          result["reason"]
+                      ] += 1
+                      continue
+
+                  text_lower = text.lower()
+
+                  city_found = (
+                      city.lower()
+                      in text_lower
+                  )
+
+                  if not city_found:
+
+                      local_words = [
+                          "несебр",
+                          "несебър",
+                          "свети влас",
+                          "святой влас",
+                          "солнечный берег",
+                          "сунny beach",
+                          "равда",
+                          "бургас",
+                          "созополь",
+                          "созопол",
+                          "приморско",
+                          "варна"
+                      ]
+
+                      if not any(
+                          word in text_lower
+                          for word in local_words
+                      ):
+                          reason_counts[
+                              "В тексте поста не подтверждена нужная локация."
+                          ] += 1
+                          continue
+
+                  title = fetched.get(
+                      "title",
+                      ""
+                  )
+
+                  matches.append(
+                      {
+                          "city": city,
+                          "title": title,
+                          "published_date":
+                              published_date.isoformat(),
+                          "text": text[:4000],
+                          "url": url
+                      }
+                  )
+
+              time.sleep(2)
+
           print(
-              f"Подходящих заявок: "
+              "\n=== ИТОГ ПРОВЕРКИ ==="
+          )
+
+          print(
+              f"Всего кандидатов: "
+              f"{len(candidates)}"
+          )
+
+          print(
+              f"Настоящих свежих заявок: "
               f"{len(matches)}"
           )
+
           print(
-              f"Ошибок поисковых запросов: "
-              f"{failed_queries}"
+              f"Ошибок поиска: "
+              f"{search_errors}"
           )
 
-          print("\n=== НАЙДЕННЫЕ ЗАЯВКИ ===")
+          print(
+              f"Ошибок Fetch: "
+              f"{fetch_errors}"
+          )
+
+          print(
+              "\n=== ТОЛЬКО РЕАЛЬНЫЕ "
+              "СВЕЖИЕ ЗАЯВКИ ==="
+          )
 
           for item in matches:
-              print("\n--- ЗАЯВКА ---")
+
               print(
-                  f"Город: {item['city']}"
-              )
-              print(
-                  f"Заголовок: {item['title']}"
-              )
-              print(
-                  f"Описание: {item['snippet']}"
-              )
-              print(
-                  f"Ссылка: {item['url']}"
+                  "\n--- ЗАЯВКА ---"
               )
 
-          print("\n=== ПРИЧИНЫ ОТКЛОНЕНИЯ ===")
+              print(
+                  f"Город: "
+                  f"{item['city']}"
+              )
 
-          for reason, count in reason_counts.most_common():
+              print(
+                  f"Дата: "
+                  f"{item['published_date']}"
+              )
+
+              print(
+                  f"Заголовок: "
+                  f"{item['title']}"
+              )
+
+              print(
+                  f"Текст: "
+                  f"{item['text']}"
+              )
+
+              print(
+                  f"Ссылка: "
+                  f"{item['url']}"
+              )
+
+          print(
+              "\n=== ПРИЧИНЫ ОТКЛОНЕНИЯ ==="
+          )
+
+          for reason, count in (
+              reason_counts.most_common()
+          ):
               print(
                   f"{count} — {reason}"
               )
 
           print(
-              "\n=== ЭТАП 1: ПОИСК ЗАВЕРШЁН ==="
+              "\n=== ЭТАП 2: "
+              "ПРОВЕРКА НАСТОЯЩИХ ПОСТОВ "
+              "ЗАВЕРШЕН ==="
           )
           PY
